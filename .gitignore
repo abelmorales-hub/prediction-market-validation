@@ -10,3 +10,4 @@ htmlcov/
 
 # Book snapshots are high-volume and regenerable; raw_samples/ IS tracked.
 data/snapshots/
+data/cache/

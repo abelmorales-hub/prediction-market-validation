@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     http_timeout_s: float = 10.0
     data_dir: Path = Path("data")
 
+    # The series catalogue is one ~21 MB response covering all ~13.7k series, and it is
+    # the only place category lives. Fetched once a day rather than joined per market.
+    metadata_cache_ttl_s: float = 86_400.0
+
+    @property
+    def cache_dir(self) -> Path:
+        return self.data_dir / "cache"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

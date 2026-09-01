@@ -1,0 +1,207 @@
+{
+  "series": [
+    {
+      "additional_prohibitions": [
+        "Any candidate currently listed as a market within this event.",
+        "Immediate family members (spouses and dependents) of any candidate currently listed as a market within this event.",
+        "Paid staffers on any campaign listed within this event.",
+        "Third-party vendors, contractors, consultants, and outside counsel (and employees thereof) engaged by any campaign listed within this event.",
+        "Paid employees of national, state, or congressional party organizations (including, e.g., the DNC, RNC, DCCC, NRCC, DSCC, and NRSC).",
+        "Paid employees of Political Action Committees (PACs) and independent-expenditure-only political committees (\"Super PACs\") active in any race listed within this event.",
+        "Registered federal lobbyists retained by any campaign, party organization, or PAC active in any race listed within this event.",
+        "Holders of federal and statewide public office.",
+        "State legislators serving on committees with jurisdiction over election administration in any state with a race listed within this event.",
+        "All staff of the U.S. House of Representatives and its members.",
+        "All staff of the U.S. Senate and its members.",
+        "All staff of the Executive Office of the President, including the Office of the President and the Office of the Vice President.",
+        "Commissioners and staff of the Federal Election Commission.",
+        "Senior staff (Schedule C and equivalent political appointees) of any federal agency with jurisdiction over election administration, election security, or election-related enforcement, including without limitation the Department of Justice (Public Integrity Section, Election Crimes Branch, and Civil Rights Division Voting Section) and the Department of Homeland Security (CISA).",
+        "All staff of the U.S. Supreme Court and its Justices.",
+        "Federal and state judges presiding over active litigation related to any race listed within this event.",
+        "All Electors who may cast ballots in connection with the determination of the President and/or Vice President of the United States.",
+        "State Secretaries of State (and equivalent chief election officials), members of state and local boards of elections, election directors, registrars, and senior staff of state and local election administration offices.",
+        "Any person working in a vote-tallying capacity, or who has the potential ability to observe official vote counts before they are public.",
+        "Paid employees of major polling organizations. The Exchange shall maintain and publish a list of polling organizations it has designated as \"major\" and may modify that list at any time. This prohibition does not apply to all employees of an organization that contains a polling division (e.g., the prohibition does not apply to all employees of Quinnipiac University despite the presence of Quinnipiac University's polling division).",
+        "Employees of Decision Desks at major media organizations, including but not limited to Fox News, ABC News, the Associated Press, CNN, CBS News, Decision Desk HQ, NBC News, The New York Times, and Reuters.",
+        "Employees of exit-polling and election-night survey operations engaged by media organizations or campaigns in any race listed within this event, including but not limited to Edison Research and the National Election Pool."
+      ],
+      "category": "Elections",
+      "contract_terms_url": "https://assets.kalshi.com/contract_terms/EUREF.pdf",
+      "contract_url": "https://assets.kalshi.com/regulatory/product-certifications/EUREF.pdf",
+      "exchange_index": 0,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-05-26T23:43:43.448175Z",
+      "settlement_sources": [
+        {
+          "name": "ABC",
+          "url": "https://abcnews.go.com/"
+        },
+        {
+          "name": "Fox News",
+          "url": "https://www.foxnews.com/"
+        },
+        {
+          "name": "MSNBC",
+          "url": "https://www.msnbc.com/"
+        },
+        {
+          "name": "The Wall Street Journal",
+          "url": "https://www.wsj.com/"
+        },
+        {
+          "name": "Semafor",
+          "url": "https://www.semafor.com/"
+        },
+        {
+          "name": "The Information",
+          "url": "https://www.theinformation.com/"
+        },
+        {
+          "name": "CBS",
+          "url": "https://www.cbsnews.com/"
+        },
+        {
+          "name": "Axios",
+          "url": "https://www.axios.com/"
+        },
+        {
+          "name": "CNN",
+          "url": "https://www.cnn.com/"
+        },
+        {
+          "name": "Reuters",
+          "url": "https://www.reuters.com/"
+        },
+        {
+          "name": "The Washington Post",
+          "url": "https://www.washingtonpost.com/"
+        },
+        {
+          "name": "the Associated Press",
+          "url": "https://apnews.com/"
+        },
+        {
+          "name": "Politico",
+          "url": "https://www.politico.com/"
+        },
+        {
+          "name": "The New York Times",
+          "url": "https://www.nytimes.com/"
+        }
+      ],
+      "tags": [
+        "International elections"
+      ],
+      "ticker": "KXEUREF",
+      "title": "EU referendums"
+    },
+    {
+      "additional_prohibitions": [
+        "Persons who are employed by any of the Source Agencies are not permitted to trade on the Contract.",
+        "Persons who hold any material, non-public information on the Underlying are not permitted to trade on the Contract.",
+        "Any candidate currently listed as a market within this event"
+      ],
+      "category": "Elections",
+      "contract_terms_url": "https://assets.kalshi.com/contract_terms/ELECTIONPLACE.pdf",
+      "contract_url": "https://assets.kalshi.com/regulatory/product-certifications/ELECTIONPLACE.pdf",
+      "exchange_index": 0,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-08-31T18:27:46.823808Z",
+      "settlement_sources": [
+        {
+          "name": "official election authority responsible for certifying results in geography",
+          "url": "https://kalshi.com/"
+        }
+      ],
+      "tags": [
+        "International elections"
+      ],
+      "ticker": "KXMANCHESTER2ND",
+      "title": "Greater Manchester mayoral election: 2nd place"
+    },
+    {
+      "additional_prohibitions": [
+        "Persons who are employed by any of the Source Agencies are not permitted to trade on the Contract.",
+        "Persons who hold any material, non-public information on the Underlying are not permitted to trade on the Contract."
+      ],
+      "category": "Science and Technology",
+      "contract_terms_url": "https://assets.kalshi.com/contract_terms/AIMARKETSHARE.pdf",
+      "contract_url": "https://assets.kalshi.com/regulatory/product-certifications/AIMARKETSHARE.pdf",
+      "exchange_index": 0,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-08-31T15:40:14.785773Z",
+      "settlement_sources": [
+        {
+          "name": "OpenRouter - AI Market Share",
+          "url": "https://openrouter.ai/rankings#market-share"
+        }
+      ],
+      "tags": [
+        "AI",
+        "Market Share"
+      ],
+      "ticker": "KXTENCENTSHARE",
+      "title": "Tencent market share"
+    },
+    {
+      "additional_prohibitions": [
+        "Current and former players, coaches, and staff of the league, association, or organization(s) governing the event. For college leagues/associations specifically, or where otherwise appropriate (as identified by the Exchange), this applies to current and former players/coaches/staff of the specific teams in <event> rather than the league/association as a whole (e.g., if the Division I Gonzaga Men\u2019s Basketball Team is playing in <event>, this prohibition will restrict trades by  current/former players of that team, rather than all current/former players/coaches/staff in any NCAA sport).",
+        "Paid employees of the league and league participants",
+        "Owners of teams and the league",
+        "and household members and immediate family of all above",
+        "Persons who are employed by any of the Source Agencies are not permitted to trade on the Contract.",
+        "Persons who hold any material, non-public information on the Underlying are not permitted to trade on the Contract."
+      ],
+      "category": "Sports",
+      "contract_terms_url": "https://assets.kalshi.com/contract_terms/SOCCERBTTS.pdf",
+      "contract_url": "https://assets.kalshi.com/regulatory/product-certifications/SOCCERBTTS.pdf",
+      "exchange_index": 0,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-08-19T15:53:33.999124Z",
+      "settlement_sources": [
+        {
+          "name": "FIFA",
+          "url": "https://www.fifa.com"
+        }
+      ],
+      "tags": [
+        "Soccer"
+      ],
+      "ticker": "KXEFLL1BTTS",
+      "title": "BTTS"
+    },
+    {
+      "additional_prohibitions": [
+        "Persons who are employed by any of the Source Agencies are not permitted to trade on the Contract.",
+        "Persons who hold any material, non-public information on the Underlying are not permitted to trade on the Contract."
+      ],
+      "category": "Mentions",
+      "contract_terms_url": "https://assets.kalshi.com/contract_terms/EARNINGSMENTION.pdf",
+      "contract_url": "https://assets.kalshi.com/regulatory/product-certifications/EARNINGSMENTION.pdf",
+      "exchange_index": 0,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-08-26T18:05:44.430464Z",
+      "settlement_sources": [
+        {
+          "name": "Bloomberg",
+          "url": "https://www.bloomberg.com/"
+        }
+      ],
+      "tags": [
+        "Earnings"
+      ],
+      "ticker": "KXEARNINGSMENTIONWEN",
+      "title": "Wendys"
+    }
+  ]
+}

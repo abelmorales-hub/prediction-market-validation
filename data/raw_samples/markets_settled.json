@@ -1,0 +1,515 @@
+{
+  "cursor": "CgwI44Dc1AYQ-OyT_AISNktYTVZFQ1JPU1NDQVRFR09SWS1TSEFSRDEtUzIwMjYzMkU4RkQxQzJGNi02RDE5NjA2Q0UyRg",
+  "markets": [
+    {
+      "can_close_early": true,
+      "close_time": "2026-09-01T16:51:00Z",
+      "created_time": "2026-09-01T16:46:08.096976Z",
+      "custom_strike": {
+        "Associated Events": "KXITFMATCH-26SEP01CRIMAZ,KXITFWMATCH-26SEP01CASTAR",
+        "Associated Market Sides": "yes,yes",
+        "Associated Markets": "KXITFMATCH-26SEP01CRIMAZ-CRI,KXITFWMATCH-26SEP01CASTAR-CAS",
+        "Multivariate Event Ticker": "KXMVECROSSCATEGORY-SHARD1-S202666434F36F40"
+      },
+      "event_ticker": "KXMVECROSSCATEGORY-SHARD1-S202666434F36F40",
+      "exchange_index": 1,
+      "expected_expiration_time": "2026-09-01T21:12:43Z",
+      "expiration_time": "2026-09-15T15:00:00Z",
+      "expiration_value": "",
+      "is_provisional": true,
+      "last_price_dollars": "0.0000",
+      "latest_expiration_time": "2026-09-15T15:00:00Z",
+      "liquidity_dollars": "0.0000",
+      "market_type": "binary",
+      "mve_collection_ticker": "KXMVECROSSCATEGORY-SHARD1-R",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "KXITFMATCH-26SEP01CRIMAZ",
+          "market_ticker": "KXITFMATCH-26SEP01CRIMAZ-CRI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFWMATCH-26SEP01CASTAR",
+          "market_ticker": "KXITFWMATCH-26SEP01CASTAR-CAS",
+          "side": "yes"
+        }
+      ],
+      "no_ask_dollars": "1.0000",
+      "no_bid_dollars": "1.0000",
+      "no_sub_title": "yes Giacomo Crisostomo,yes Michela Castro Zunino",
+      "notional_value_dollars": "1.0000",
+      "open_interest_fp": "0.00",
+      "open_time": "2026-09-01T16:46:08Z",
+      "previous_price_dollars": "0.0000",
+      "previous_yes_ask_dollars": "0.0000",
+      "previous_yes_bid_dollars": "0.0000",
+      "price_level_structure": "deci_cent",
+      "price_ranges": [
+        {
+          "end": "1.0000",
+          "start": "0.0000",
+          "step": "0.0010"
+        }
+      ],
+      "result": "no",
+      "rules_primary": "",
+      "rules_secondary": "Kalshi is not affiliated, associated, authorized, endorsed by, or in any way officially connected with the Governing League. All trademarks, logos, and brand names are the property of their respective owners.",
+      "settlement_timer_seconds": 5,
+      "settlement_ts": "2026-09-01T16:51:00.268861Z",
+      "settlement_value_dollars": "0.0000",
+      "status": "finalized",
+      "strike_type": "custom",
+      "ticker": "KXMVECROSSCATEGORY-SHARD1-S202666434F36F40-97D900FA9C8",
+      "title": "yes Giacomo Crisostomo,yes Michela Castro Zunino",
+      "updated_time": "2026-09-01T16:51:00.329185Z",
+      "volume_24h_fp": "0.00",
+      "volume_fp": "0.00",
+      "yes_ask_dollars": "0.0000",
+      "yes_ask_size_fp": "0.00",
+      "yes_bid_dollars": "0.0000",
+      "yes_bid_size_fp": "0.00",
+      "yes_sub_title": "yes Giacomo Crisostomo,yes Michela Castro Zunino"
+    },
+    {
+      "can_close_early": true,
+      "close_time": "2026-09-01T16:51:00Z",
+      "created_time": "2026-09-01T16:45:12.301233Z",
+      "custom_strike": {
+        "Associated Events": "KXATPCHALLENGERMATCH-26SEP01BRUSOR,KXATPCHALLENGERMATCH-26SEP01NESMIL,KXATPCHALLENGERMATCH-26SEP01OLIVIS,KXATPMATCH-26AUG30COMCOB,KXITFMATCH-26SEP01ANDVAN,KXITFMATCH-26SEP01AUBFUM,KXITFMATCH-26SEP01CRIMAZ,KXITFMATCH-26SEP01DUBGAR,KXITFMATCH-26SEP01ZARBRU,KXITFWMATCH-26SEP01BAYBOU,KXITFWMATCH-26SEP01CASTAR,KXITFWMATCH-26SEP01DZJBAR,KXWTAMATCH-26AUG30KEYKOR",
+        "Associated Market Sides": "yes,yes,yes,yes,yes,yes,yes,yes,yes,yes,yes,yes,yes",
+        "Associated Markets": "KXATPCHALLENGERMATCH-26SEP01BRUSOR-BRU,KXATPCHALLENGERMATCH-26SEP01NESMIL-NES,KXATPCHALLENGERMATCH-26SEP01OLIVIS-VIS,KXATPMATCH-26AUG30COMCOB-COM,KXITFMATCH-26SEP01ANDVAN-AND,KXITFMATCH-26SEP01AUBFUM-FUM,KXITFMATCH-26SEP01CRIMAZ-MAZ,KXITFMATCH-26SEP01DUBGAR-GAR,KXITFMATCH-26SEP01ZARBRU-ZAR,KXITFWMATCH-26SEP01BAYBOU-BAY,KXITFWMATCH-26SEP01CASTAR-TAR,KXITFWMATCH-26SEP01DZJBAR-BAR,KXWTAMATCH-26AUG30KEYKOR-KEY",
+        "Multivariate Event Ticker": "KXMVECROSSCATEGORY-SHARD1-S2026190EC8DA729"
+      },
+      "event_ticker": "KXMVECROSSCATEGORY-SHARD1-S2026190EC8DA729",
+      "exchange_index": 1,
+      "expected_expiration_time": "2026-09-01T22:15:00Z",
+      "expiration_time": "2026-09-15T16:00:00Z",
+      "expiration_value": "",
+      "is_provisional": true,
+      "last_price_dollars": "0.0000",
+      "latest_expiration_time": "2026-09-15T16:00:00Z",
+      "liquidity_dollars": "0.0000",
+      "market_type": "binary",
+      "mve_collection_ticker": "KXMVECROSSCATEGORY-SHARD1-R",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "KXATPCHALLENGERMATCH-26SEP01BRUSOR",
+          "market_ticker": "KXATPCHALLENGERMATCH-26SEP01BRUSOR-BRU",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXATPCHALLENGERMATCH-26SEP01NESMIL",
+          "market_ticker": "KXATPCHALLENGERMATCH-26SEP01NESMIL-NES",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXATPCHALLENGERMATCH-26SEP01OLIVIS",
+          "market_ticker": "KXATPCHALLENGERMATCH-26SEP01OLIVIS-VIS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXATPMATCH-26AUG30COMCOB",
+          "market_ticker": "KXATPMATCH-26AUG30COMCOB-COM",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFMATCH-26SEP01ANDVAN",
+          "market_ticker": "KXITFMATCH-26SEP01ANDVAN-AND",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFMATCH-26SEP01AUBFUM",
+          "market_ticker": "KXITFMATCH-26SEP01AUBFUM-FUM",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFMATCH-26SEP01CRIMAZ",
+          "market_ticker": "KXITFMATCH-26SEP01CRIMAZ-MAZ",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFMATCH-26SEP01DUBGAR",
+          "market_ticker": "KXITFMATCH-26SEP01DUBGAR-GAR",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFMATCH-26SEP01ZARBRU",
+          "market_ticker": "KXITFMATCH-26SEP01ZARBRU-ZAR",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFWMATCH-26SEP01BAYBOU",
+          "market_ticker": "KXITFWMATCH-26SEP01BAYBOU-BAY",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFWMATCH-26SEP01CASTAR",
+          "market_ticker": "KXITFWMATCH-26SEP01CASTAR-TAR",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFWMATCH-26SEP01DZJBAR",
+          "market_ticker": "KXITFWMATCH-26SEP01DZJBAR-BAR",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWTAMATCH-26AUG30KEYKOR",
+          "market_ticker": "KXWTAMATCH-26AUG30KEYKOR-KEY",
+          "side": "yes"
+        }
+      ],
+      "no_ask_dollars": "1.0000",
+      "no_bid_dollars": "1.0000",
+      "no_sub_title": "yes Petr Brunclik,yes Pyotr Nesterov,yes Niels Visker,yes Francisco Comesana,yes Stefan Adrian Andreescu,yes Filiberto Fumagalli,yes Manuel Mazza,yes Axel Garcian,yes Carlos Maria Zarate,yes Michaela Bayerlova,yes Agustina Tarantola,yes Annika Barth,yes Madison Keys",
+      "notional_value_dollars": "1.0000",
+      "open_interest_fp": "0.00",
+      "open_time": "2026-09-01T16:45:12Z",
+      "previous_price_dollars": "0.0000",
+      "previous_yes_ask_dollars": "0.0000",
+      "previous_yes_bid_dollars": "0.0000",
+      "price_level_structure": "deci_cent",
+      "price_ranges": [
+        {
+          "end": "1.0000",
+          "start": "0.0000",
+          "step": "0.0010"
+        }
+      ],
+      "result": "no",
+      "rules_primary": "",
+      "rules_secondary": "Kalshi is not affiliated, associated, authorized, endorsed by, or in any way officially connected with the Governing League. All trademarks, logos, and brand names are the property of their respective owners.",
+      "settlement_timer_seconds": 5,
+      "settlement_ts": "2026-09-01T16:51:00.260659Z",
+      "settlement_value_dollars": "0.0000",
+      "status": "finalized",
+      "strike_type": "custom",
+      "ticker": "KXMVECROSSCATEGORY-SHARD1-S2026190EC8DA729-F8ADB0E71C3",
+      "title": "yes Petr Brunclik,yes Pyotr Nesterov,yes Niels Visker,yes Francisco Comesana,yes Stefan Adrian Andreescu,yes Filiberto Fumagalli,yes Manuel Mazza,yes Axel Garcian,yes Carlos Maria Zarate,yes Michaela Bayerlova,yes Agustina Tarantola,yes Annika Barth,yes Madison Keys",
+      "updated_time": "2026-09-01T16:51:00.329185Z",
+      "volume_24h_fp": "0.00",
+      "volume_fp": "0.00",
+      "yes_ask_dollars": "0.0000",
+      "yes_ask_size_fp": "0.00",
+      "yes_bid_dollars": "0.0000",
+      "yes_bid_size_fp": "0.00",
+      "yes_sub_title": "yes Petr Brunclik,yes Pyotr Nesterov,yes Niels Visker,yes Francisco Comesana,yes Stefan Adrian Andreescu,yes Filiberto Fumagalli,yes Manuel Mazza,yes Axel Garcian,yes Carlos Maria Zarate,yes Michaela Bayerlova,yes Agustina Tarantola,yes Annika Barth,yes Madison Keys"
+    },
+    {
+      "can_close_early": true,
+      "close_time": "2026-09-01T16:51:00Z",
+      "created_time": "2026-09-01T16:45:08.153642Z",
+      "custom_strike": {
+        "Associated Events": "KXITFMATCH-26SEP01AUBFUM,KXITFMATCH-26SEP01MOUBRA,KXITFMATCH-26SEP01ZARBRU,KXITFWMATCH-26SEP01CASTAR,KXITFWMATCH-26SEP01CEUKAD",
+        "Associated Market Sides": "yes,yes,yes,yes,yes",
+        "Associated Markets": "KXITFMATCH-26SEP01AUBFUM-AUB,KXITFMATCH-26SEP01MOUBRA-BRA,KXITFMATCH-26SEP01ZARBRU-ZAR,KXITFWMATCH-26SEP01CASTAR-CAS,KXITFWMATCH-26SEP01CEUKAD-KAD",
+        "Multivariate Event Ticker": "KXMVECROSSCATEGORY-SHARD1-S20269C61F8B1D86"
+      },
+      "event_ticker": "KXMVECROSSCATEGORY-SHARD1-S20269C61F8B1D86",
+      "exchange_index": 1,
+      "expected_expiration_time": "2026-09-01T21:38:30Z",
+      "expiration_time": "2026-09-15T14:00:00Z",
+      "expiration_value": "",
+      "is_provisional": true,
+      "last_price_dollars": "0.0000",
+      "latest_expiration_time": "2026-09-15T14:00:00Z",
+      "liquidity_dollars": "0.0000",
+      "market_type": "binary",
+      "mve_collection_ticker": "KXMVECROSSCATEGORY-SHARD1-R",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "KXITFMATCH-26SEP01AUBFUM",
+          "market_ticker": "KXITFMATCH-26SEP01AUBFUM-AUB",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFMATCH-26SEP01MOUBRA",
+          "market_ticker": "KXITFMATCH-26SEP01MOUBRA-BRA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFMATCH-26SEP01ZARBRU",
+          "market_ticker": "KXITFMATCH-26SEP01ZARBRU-ZAR",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFWMATCH-26SEP01CASTAR",
+          "market_ticker": "KXITFWMATCH-26SEP01CASTAR-CAS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFWMATCH-26SEP01CEUKAD",
+          "market_ticker": "KXITFWMATCH-26SEP01CEUKAD-KAD",
+          "side": "yes"
+        }
+      ],
+      "no_ask_dollars": "1.0000",
+      "no_bid_dollars": "1.0000",
+      "no_sub_title": "yes Alexandre Aubriot,yes Giovanni Branchetti,yes Carlos Maria Zarate,yes Michela Castro Zunino,yes Oliwia Kadzielska",
+      "notional_value_dollars": "1.0000",
+      "open_interest_fp": "0.00",
+      "open_time": "2026-09-01T16:45:08Z",
+      "previous_price_dollars": "0.0000",
+      "previous_yes_ask_dollars": "0.0000",
+      "previous_yes_bid_dollars": "0.0000",
+      "price_level_structure": "deci_cent",
+      "price_ranges": [
+        {
+          "end": "1.0000",
+          "start": "0.0000",
+          "step": "0.0010"
+        }
+      ],
+      "result": "no",
+      "rules_primary": "",
+      "rules_secondary": "Kalshi is not affiliated, associated, authorized, endorsed by, or in any way officially connected with the Governing League. All trademarks, logos, and brand names are the property of their respective owners.",
+      "settlement_timer_seconds": 5,
+      "settlement_ts": "2026-09-01T16:51:00.249984Z",
+      "settlement_value_dollars": "0.0000",
+      "status": "finalized",
+      "strike_type": "custom",
+      "ticker": "KXMVECROSSCATEGORY-SHARD1-S20269C61F8B1D86-A40B4B71B53",
+      "title": "yes Alexandre Aubriot,yes Giovanni Branchetti,yes Carlos Maria Zarate,yes Michela Castro Zunino,yes Oliwia Kadzielska",
+      "updated_time": "2026-09-01T16:51:00.329185Z",
+      "volume_24h_fp": "0.00",
+      "volume_fp": "0.00",
+      "yes_ask_dollars": "0.0000",
+      "yes_ask_size_fp": "0.00",
+      "yes_bid_dollars": "0.0000",
+      "yes_bid_size_fp": "0.00",
+      "yes_sub_title": "yes Alexandre Aubriot,yes Giovanni Branchetti,yes Carlos Maria Zarate,yes Michela Castro Zunino,yes Oliwia Kadzielska"
+    },
+    {
+      "can_close_early": true,
+      "close_time": "2026-09-01T16:45:00Z",
+      "created_time": "2026-09-01T16:44:50.124925Z",
+      "custom_strike": {
+        "Associated Events": "KXBNB15M-26SEP011245,KXBTC15M-26SEP011245,KXCOPPER15M-26SEP011245,KXDOGE15M-26SEP011245,KXETH15M-26SEP011245,KXGOLD15M-26SEP011245,KXNATGAS15M-26SEP011245,KXNEAR15M-26SEP011245,KXSILVER15M-26SEP011245,KXSOL15M-26SEP011245,KXWTI15M-26SEP011245,KXXRP15M-26SEP011245",
+        "Associated Market Sides": "no,no,yes,no,no,yes,yes,no,yes,no,no,no",
+        "Associated Markets": "KXBNB15M-26SEP011245-45,KXBTC15M-26SEP011245-45,KXCOPPER15M-26SEP011245-45,KXDOGE15M-26SEP011245-45,KXETH15M-26SEP011245-45,KXGOLD15M-26SEP011245-45,KXNATGAS15M-26SEP011245-45,KXNEAR15M-26SEP011245-45,KXSILVER15M-26SEP011245-45,KXSOL15M-26SEP011245-45,KXWTI15M-26SEP011245-45,KXXRP15M-26SEP011245-45",
+        "Multivariate Event Ticker": "KXMVECROSSCATEGORY-SHARD1-S2026FE0B8FDDAA1"
+      },
+      "event_ticker": "KXMVECROSSCATEGORY-SHARD1-S2026FE0B8FDDAA1",
+      "exchange_index": 1,
+      "expected_expiration_time": "2026-09-01T22:30:00Z",
+      "expiration_time": "2026-09-01T16:45:00Z",
+      "expiration_value": "",
+      "is_provisional": true,
+      "last_price_dollars": "0.0000",
+      "latest_expiration_time": "2026-09-01T16:45:00Z",
+      "liquidity_dollars": "0.0000",
+      "market_type": "binary",
+      "mve_collection_ticker": "KXMVECROSSCATEGORY-SHARD1-R",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "KXBNB15M-26SEP011245",
+          "market_ticker": "KXBNB15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXBTC15M-26SEP011245",
+          "market_ticker": "KXBTC15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXCOPPER15M-26SEP011245",
+          "market_ticker": "KXCOPPER15M-26SEP011245-45",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXDOGE15M-26SEP011245",
+          "market_ticker": "KXDOGE15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXETH15M-26SEP011245",
+          "market_ticker": "KXETH15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXGOLD15M-26SEP011245",
+          "market_ticker": "KXGOLD15M-26SEP011245-45",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXNATGAS15M-26SEP011245",
+          "market_ticker": "KXNATGAS15M-26SEP011245-45",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXNEAR15M-26SEP011245",
+          "market_ticker": "KXNEAR15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXSILVER15M-26SEP011245",
+          "market_ticker": "KXSILVER15M-26SEP011245-45",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXSOL15M-26SEP011245",
+          "market_ticker": "KXSOL15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXWTI15M-26SEP011245",
+          "market_ticker": "KXWTI15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXXRP15M-26SEP011245",
+          "market_ticker": "KXXRP15M-26SEP011245-45",
+          "side": "no"
+        }
+      ],
+      "no_ask_dollars": "1.0000",
+      "no_bid_dollars": "1.0000",
+      "no_sub_title": "no Target Price: $684.88,no Target Price: $77,612.83,yes Target Price: $6.59914,no Target Price: $0.0822748,no Target Price: $2,433.39,yes Target Price: $4,353.10,yes Target Price: $2.89893,no Target Price: $1.9891,yes Target Price: $64.919,no Target Price: $101.4093,no Target Price: $89.70,no Target Price: $1.3667",
+      "notional_value_dollars": "1.0000",
+      "open_interest_fp": "0.00",
+      "open_time": "2026-09-01T16:44:50Z",
+      "previous_price_dollars": "0.0000",
+      "previous_yes_ask_dollars": "0.0000",
+      "previous_yes_bid_dollars": "0.0000",
+      "price_level_structure": "deci_cent",
+      "price_ranges": [
+        {
+          "end": "1.0000",
+          "start": "0.0000",
+          "step": "0.0010"
+        }
+      ],
+      "result": "yes",
+      "rules_primary": "",
+      "rules_secondary": "Kalshi is not affiliated, associated, authorized, endorsed by, or in any way officially connected with the Governing League. All trademarks, logos, and brand names are the property of their respective owners.",
+      "settlement_timer_seconds": 5,
+      "settlement_ts": "2026-09-01T16:51:00.237984Z",
+      "settlement_value_dollars": "1.0000",
+      "status": "finalized",
+      "strike_type": "custom",
+      "ticker": "KXMVECROSSCATEGORY-SHARD1-S2026FE0B8FDDAA1-24047F9A80B",
+      "title": "no Target Price: $684.88,no Target Price: $77,612.83,yes Target Price: $6.59914,no Target Price: $0.0822748,no Target Price: $2,433.39,yes Target Price: $4,353.10,yes Target Price: $2.89893,no Target Price: $1.9891,yes Target Price: $64.919,no Target Price: $101.4093,no Target Price: $89.70,no Target Price: $1.3667",
+      "updated_time": "2026-09-01T16:51:00.329185Z",
+      "volume_24h_fp": "0.00",
+      "volume_fp": "0.00",
+      "yes_ask_dollars": "0.0000",
+      "yes_ask_size_fp": "0.00",
+      "yes_bid_dollars": "0.0000",
+      "yes_bid_size_fp": "0.00",
+      "yes_sub_title": "no Target Price: $684.88,no Target Price: $77,612.83,yes Target Price: $6.59914,no Target Price: $0.0822748,no Target Price: $2,433.39,yes Target Price: $4,353.10,yes Target Price: $2.89893,no Target Price: $1.9891,yes Target Price: $64.919,no Target Price: $101.4093,no Target Price: $89.70,no Target Price: $1.3667"
+    },
+    {
+      "can_close_early": true,
+      "close_time": "2026-09-01T16:45:00Z",
+      "created_time": "2026-09-01T16:44:49.599813Z",
+      "custom_strike": {
+        "Associated Events": "KXBTC15M-26SEP011245,KXCOPPER15M-26SEP011245,KXDOGE15M-26SEP011245,KXETH15M-26SEP011245,KXGOLD15M-26SEP011245,KXNATGAS15M-26SEP011245,KXNEAR15M-26SEP011245,KXSILVER15M-26SEP011245,KXSOL15M-26SEP011245,KXWTI15M-26SEP011245,KXXRP15M-26SEP011245",
+        "Associated Market Sides": "no,yes,no,no,yes,yes,no,yes,no,no,no",
+        "Associated Markets": "KXBTC15M-26SEP011245-45,KXCOPPER15M-26SEP011245-45,KXDOGE15M-26SEP011245-45,KXETH15M-26SEP011245-45,KXGOLD15M-26SEP011245-45,KXNATGAS15M-26SEP011245-45,KXNEAR15M-26SEP011245-45,KXSILVER15M-26SEP011245-45,KXSOL15M-26SEP011245-45,KXWTI15M-26SEP011245-45,KXXRP15M-26SEP011245-45",
+        "Multivariate Event Ticker": "KXMVECROSSCATEGORY-SHARD1-S20260585BA4CBA3"
+      },
+      "event_ticker": "KXMVECROSSCATEGORY-SHARD1-S20260585BA4CBA3",
+      "exchange_index": 1,
+      "expected_expiration_time": "2026-09-01T22:30:00Z",
+      "expiration_time": "2026-09-01T16:45:00Z",
+      "expiration_value": "",
+      "is_provisional": true,
+      "last_price_dollars": "0.0000",
+      "latest_expiration_time": "2026-09-01T16:45:00Z",
+      "liquidity_dollars": "0.0000",
+      "market_type": "binary",
+      "mve_collection_ticker": "KXMVECROSSCATEGORY-SHARD1-R",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "KXBTC15M-26SEP011245",
+          "market_ticker": "KXBTC15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXCOPPER15M-26SEP011245",
+          "market_ticker": "KXCOPPER15M-26SEP011245-45",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXDOGE15M-26SEP011245",
+          "market_ticker": "KXDOGE15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXETH15M-26SEP011245",
+          "market_ticker": "KXETH15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXGOLD15M-26SEP011245",
+          "market_ticker": "KXGOLD15M-26SEP011245-45",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXNATGAS15M-26SEP011245",
+          "market_ticker": "KXNATGAS15M-26SEP011245-45",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXNEAR15M-26SEP011245",
+          "market_ticker": "KXNEAR15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXSILVER15M-26SEP011245",
+          "market_ticker": "KXSILVER15M-26SEP011245-45",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXSOL15M-26SEP011245",
+          "market_ticker": "KXSOL15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXWTI15M-26SEP011245",
+          "market_ticker": "KXWTI15M-26SEP011245-45",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXXRP15M-26SEP011245",
+          "market_ticker": "KXXRP15M-26SEP011245-45",
+          "side": "no"
+        }
+      ],
+      "no_ask_dollars": "1.0000",
+      "no_bid_dollars": "1.0000",
+      "no_sub_title": "no Target Price: $77,612.83,yes Target Price: $6.59914,no Target Price: $0.0822748,no Target Price: $2,433.39,yes Target Price: $4,353.10,yes Target Price: $2.89893,no Target Price: $1.9891,yes Target Price: $64.919,no Target Price: $101.4093,no Target Price: $89.70,no Target Price: $1.3667",
+      "notional_value_dollars": "1.0000",
+      "open_interest_fp": "0.00",
+      "open_time": "2026-09-01T16:44:49Z",
+      "previous_price_dollars": "0.0000",
+      "previous_yes_ask_dollars": "0.0000",
+      "previous_yes_bid_dollars": "0.0000",
+      "price_level_structure": "deci_cent",
+      "price_ranges": [
+        {
+          "end": "1.0000",
+          "start": "0.0000",
+          "step": "0.0010"
+        }
+      ],
+      "result": "yes",
+      "rules_primary": "",
+      "rules_secondary": "Kalshi is not affiliated, associated, authorized, endorsed by, or in any way officially connected with the Governing League. All trademarks, logos, and brand names are the property of their respective owners.",
+      "settlement_timer_seconds": 5,
+      "settlement_ts": "2026-09-01T16:51:00.228377Z",
+      "settlement_value_dollars": "1.0000",
+      "status": "finalized",
+      "strike_type": "custom",
+      "ticker": "KXMVECROSSCATEGORY-SHARD1-S20260585BA4CBA3-80DE4F2FA8C",
+      "title": "no Target Price: $77,612.83,yes Target Price: $6.59914,no Target Price: $0.0822748,no Target Price: $2,433.39,yes Target Price: $4,353.10,yes Target Price: $2.89893,no Target Price: $1.9891,yes Target Price: $64.919,no Target Price: $101.4093,no Target Price: $89.70,no Target Price: $1.3667",
+      "updated_time": "2026-09-01T16:51:00.329185Z",
+      "volume_24h_fp": "0.00",
+      "volume_fp": "0.00",
+      "yes_ask_dollars": "0.0000",
+      "yes_ask_size_fp": "0.00",
+      "yes_bid_dollars": "0.0000",
+      "yes_bid_size_fp": "0.00",
+      "yes_sub_title": "no Target Price: $77,612.83,yes Target Price: $6.59914,no Target Price: $0.0822748,no Target Price: $2,433.39,yes Target Price: $4,353.10,yes Target Price: $2.89893,no Target Price: $1.9891,yes Target Price: $64.919,no Target Price: $101.4093,no Target Price: $89.70,no Target Price: $1.3667"
+    }
+  ]
+}

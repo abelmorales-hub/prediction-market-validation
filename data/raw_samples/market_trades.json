@@ -1,0 +1,65 @@
+{
+  "cursor": "EhIKEAchKm-m4Ys_iXLlGtf5CfQaCwjdhdzUBhDY7IZ1",
+  "trades": [
+    {
+      "count_fp": "15.00",
+      "created_time": "2026-09-01T16:52:45.288596Z",
+      "is_block_trade": false,
+      "no_price_dollars": "0.6100",
+      "taker_book_side": "bid",
+      "taker_outcome_side": "yes",
+      "taker_side": "yes",
+      "ticker": "KXCS2GAME-26SEP010900WBTVP-VP",
+      "trade_id": "07212a6f-9269-818a-1b14-dc50a3efa745",
+      "yes_price_dollars": "0.3900"
+    },
+    {
+      "count_fp": "5.00",
+      "created_time": "2026-09-01T16:52:45.266566Z",
+      "is_block_trade": false,
+      "no_price_dollars": "0.6100",
+      "taker_book_side": "bid",
+      "taker_outcome_side": "yes",
+      "taker_side": "yes",
+      "ticker": "KXCS2GAME-26SEP010900WBTVP-VP",
+      "trade_id": "07212a6f-9269-aa9e-ba5e-8911a8cfee93",
+      "yes_price_dollars": "0.3900"
+    },
+    {
+      "count_fp": "35.00",
+      "created_time": "2026-09-01T16:52:45.266566Z",
+      "is_block_trade": false,
+      "no_price_dollars": "0.6100",
+      "taker_book_side": "bid",
+      "taker_outcome_side": "yes",
+      "taker_side": "yes",
+      "ticker": "KXCS2GAME-26SEP010900WBTVP-VP",
+      "trade_id": "07212a6f-9269-a822-94ea-c9d2c3cbd419",
+      "yes_price_dollars": "0.3900"
+    },
+    {
+      "count_fp": "40.00",
+      "created_time": "2026-09-01T16:52:45.259981Z",
+      "is_block_trade": false,
+      "no_price_dollars": "0.6000",
+      "taker_book_side": "bid",
+      "taker_outcome_side": "yes",
+      "taker_side": "yes",
+      "ticker": "KXCS2GAME-26SEP010900WBTVP-VP",
+      "trade_id": "07212a6f-a6e1-a29d-b5ed-8ad52d9f1724",
+      "yes_price_dollars": "0.4000"
+    },
+    {
+      "count_fp": "50.00",
+      "created_time": "2026-09-01T16:52:45.245479Z",
+      "is_block_trade": false,
+      "no_price_dollars": "0.6100",
+      "taker_book_side": "bid",
+      "taker_outcome_side": "yes",
+      "taker_side": "yes",
+      "ticker": "KXCS2GAME-26SEP010900WBTVP-VP",
+      "trade_id": "07212a6f-a6e1-8b3f-8972-e51ad7f909f4",
+      "yes_price_dollars": "0.3900"
+    }
+  ]
+}

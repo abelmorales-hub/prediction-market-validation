@@ -1,0 +1,50 @@
+{
+  "exchange_status": {
+    "path": "/exchange/status",
+    "status": 200
+  },
+  "markets_open": {
+    "path": "/markets?limit=200&status=open&min_close_ts=1788281563&max_close_ts=1788454363",
+    "status": 200
+  },
+  "markets_settled": {
+    "path": "/markets?limit=100&status=settled",
+    "status": 200
+  },
+  "events": {
+    "path": "/events?limit=3",
+    "status": 200
+  },
+  "series_list": {
+    "path": "/series?limit=3",
+    "status": 200
+  },
+  "market_single": {
+    "path": "/markets/KXCS2GAME-26SEP010900WBTVP-VP",
+    "status": 200
+  },
+  "market_orderbook": {
+    "path": "/markets/KXCS2GAME-26SEP010900WBTVP-VP/orderbook?depth=10",
+    "status": 200
+  },
+  "market_trades": {
+    "path": "/markets/trades?ticker=KXCS2GAME-26SEP010900WBTVP-VP&limit=5",
+    "status": 200
+  },
+  "event_single": {
+    "path": "/events/KXCS2GAME-26SEP010900WBTVP",
+    "status": 200
+  },
+  "series_single": {
+    "path": "/series/KXCS2GAME",
+    "status": 200
+  },
+  "candlesticks": {
+    "path": "/series/KXCS2GAME/markets/KXCS2GAME-26SEP010900WBTVP-VP/candlesticks?start_ts=1788195166&end_ts=1788281566&period_interval=60",
+    "status": 200
+  },
+  "_note": {
+    "recorded": "2026-09-01T16:52:46.973724+00:00",
+    "trimmed": "list fields capped at 5 rows; object shape is verbatim"
+  }
+}
