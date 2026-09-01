@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     http_timeout_s: float = 10.0
     data_dir: Path = Path("data")
 
+    # Postgres for the small relational state only. Book snapshots go to Parquet.
+    supabase_db_url: str | None = None
+
     # The series catalogue is one ~21 MB response covering all ~13.7k series, and it is
     # the only place category lives. Fetched once a day rather than joined per market.
     metadata_cache_ttl_s: float = 86_400.0

@@ -38,9 +38,15 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.mypy]
-python_version = "3.11"
+# No python_version pin: numpy's bundled stubs use `type` statements that only parse
+# under 3.12+, so mypy checks against the venv interpreter. ruff's target-version still
+# holds the floor at py311.
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["pyarrow.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
