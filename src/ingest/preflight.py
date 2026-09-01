@@ -22,6 +22,12 @@ import httpx
 
 SKIPPED = "skipped (previous stage failed)"
 
+# Kalshi resets the TLS handshake when handshakes arrive back to back, then recovers
+# after a short pause. One retry keeps the gate from reporting a spurious FAIL; the
+# detail string still says a retry happened, so genuine flakiness stays visible.
+ATTEMPTS = 2
+RETRY_PAUSE_S = 2.0
+
 
 @dataclass(frozen=True)
 class StageResult:
@@ -44,13 +50,19 @@ class HostReport:
 
 def _timed(name: str, probe: Callable[[], str]) -> StageResult:
     start = time.perf_counter()
-    try:
-        detail = probe()
-        ok = True
-    except Exception as exc:  # noqa: BLE001 - the failure text is the whole point
-        detail = f"{type(exc).__name__}: {exc}"
-        ok = False
-    return StageResult(name, ok, detail, (time.perf_counter() - start) * 1000)
+    detail = ""
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            detail = probe()
+            if attempt > 1:
+                detail += f"  (passed on attempt {attempt})"
+            return StageResult(name, True, detail, (time.perf_counter() - start) * 1000)
+        except Exception as exc:  # noqa: BLE001 - the failure text is the whole point
+            detail = f"{type(exc).__name__}: {exc}"
+            if attempt < ATTEMPTS:
+                time.sleep(RETRY_PAUSE_S)
+    detail += f"  (failed {ATTEMPTS} attempts)"
+    return StageResult(name, False, detail, (time.perf_counter() - start) * 1000)
 
 
 def _dns(host: str, port: int) -> str:

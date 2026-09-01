@@ -11,11 +11,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    gamma_base_url: str
-    clob_base_url: str
+    # Kalshi serves market data and order books from one host, unlike Polymarket's
+    # gamma/clob split. MarketDataSource (M1) is what keeps the rest venue-agnostic.
+    kalshi_base_url: str
 
-    gamma_preflight_path: str = "/markets?limit=1"
-    clob_preflight_path: str = "/ok"
+    # Cheap public GETs used only by the pre-flight check.
+    preflight_paths: list[str] = ["/exchange/status", "/markets?limit=1"]
 
     http_timeout_s: float = 10.0
     data_dir: Path = Path("data")

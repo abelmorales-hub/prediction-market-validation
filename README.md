@@ -23,12 +23,19 @@ uv run pytest              # unit tests; never touches the network
 uv run pytest -m integration
 ```
 
-## Status: BLOCKED at C0
+## Venue: Kalshi
 
-`*.polymarket.com` is unreachable from this machine. DNS resolves; the TLS handshake is
-reset by the peer. Other Cloudflare-fronted hosts work, so it is hostname-specific and
-remote, not a local TLS problem. See the C0 checkpoint report.
+Polymarket was the original target but is unreachable from here — DNS resolves, then the
+peer resets the TLS handshake for every `*.polymarket.com` name, while other Cloudflare
+hosts work fine. Routing around that is out of scope by design, so the venue was switched
+to Kalshi, which pre-flights clean.
 
-Working around a geoblock is out of scope by design. The ingest layer is defined against a
-`MarketDataSource` protocol (M1) precisely so a different venue can be swapped in by a
-human decision.
+Kalshi serves metadata and order books from one host (`api.elections.kalshi.com`), where
+Polymarket split them across gamma and clob. `MarketDataSource` (M1) is the seam that keeps
+the rest of the pipeline venue-agnostic.
+
+**Observed from here:** back-to-back TLS handshakes to that host start getting reset after
+about two connections, and recover completely after a ~60 s pause (measured: 10/10 clean).
+Pre-flight retries once for that reason. M1 must use a pooled `httpx.Client` with
+keep-alive so it is not opening a fresh handshake per request — the connection rate, not
+the request rate, is what trips it.

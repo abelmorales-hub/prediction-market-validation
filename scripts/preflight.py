@@ -18,12 +18,9 @@ def main() -> int:
         print(f"Config error: {exc}\nCopy .env.example to .env first.", file=sys.stderr)
         return 2
 
-    targets = [
-        ("gamma", cfg.gamma_base_url.rstrip("/") + cfg.gamma_preflight_path),
-        ("clob", cfg.clob_base_url.rstrip("/") + cfg.clob_preflight_path),
-    ]
+    base = cfg.kalshi_base_url.rstrip("/")
     reports: list[HostReport] = [
-        check_host(label, url, cfg.http_timeout_s) for label, url in targets
+        check_host(path, base + path, cfg.http_timeout_s) for path in cfg.preflight_paths
     ]
     print(format_report(reports))
     return 0 if all(r.ok for r in reports) else 1
