@@ -13,11 +13,12 @@ from src.storage.parquet_store import (
 )
 
 TS = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+CLOSE = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
 
 def _snap(market_id: str = "A-1", ts: datetime = TS, **kw: object) -> BookSnapshot:
     book = build_book(market_id, [["0.60", "10"], ["0.62", "4"]], [["0.35", "7"]], ts=ts)
-    return BookSnapshot.from_book(book).model_copy(update=kw)
+    return BookSnapshot.from_book(book, close_time=CLOSE).model_copy(update=kw)
 
 
 def test_round_trip_preserves_every_field(tmp_path: Path) -> None:
@@ -29,7 +30,7 @@ def test_round_trip_preserves_every_field(tmp_path: Path) -> None:
 
 def test_round_trip_preserves_none_rather_than_zero(tmp_path: Path) -> None:
     """An empty book has no mid. Zero is a real price and must not be invented."""
-    empty = BookSnapshot.from_book(build_book("A-1", [], [], ts=TS))
+    empty = BookSnapshot.from_book(build_book("A-1", [], [], ts=TS), close_time=CLOSE)
     write_snapshots([empty], tmp_path)
     (restored,) = read_snapshots(tmp_path)
     assert restored.mid is None and restored.best_bid is None and restored.best_ask is None

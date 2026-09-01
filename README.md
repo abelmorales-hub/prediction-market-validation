@@ -4,16 +4,34 @@ Does a forecast `p̂` beat the market's own price at the same timestamp, out of 
 with enough power to rule out luck?
 
 Read-only. No orders, no wallet, no keys, no capital logic. See the milestone plan in
-the build prompt; this repo currently contains **M0 and M1**.
+the build prompt; this repo currently contains **M0–M3**.
 
 ## Setup
 
 ```bash
-cp .env.example .env
+cp .env.example .env                        # then add SUPABASE_DB_URL
 uv sync
 uv run python -m scripts.preflight          # exits 1 if an endpoint is unreachable
 uv run python -m scripts.dump_raw_samples   # re-record data/raw_samples/
 ```
+
+## Collecting
+
+```bash
+uv run python -m scripts.snapshot --minutes 60     # 0 = until interrupted
+uv run python -m scripts.gap_report --days 1       # exits 1 on a CRITICAL gap
+```
+
+The snapshotter is resumable: all scheduling state is the last recorded timestamp per
+market, read back from Parquet on start. A hard kill costs at most one buffer.
+
+**Universe sizing.** A 30-hour window returns ~4,400 open markets, overwhelmingly strike
+ladders where each rung is a separate market that never trades. Sweeping all of them
+takes far longer than the one-minute dense cadence, so `--min-volume` (default 1000)
+and `--max-markets` (default 400) bound it — 105 markets at the time of writing, a ~21 s
+sweep. That is a *research* choice as much as a technical one: raising the floor buys
+cadence fidelity and costs sample size, and both feed the power calculation in §5 of the
+design doc.
 
 ## Checks
 

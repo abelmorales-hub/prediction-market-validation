@@ -25,6 +25,11 @@ SCHEMA = pa.schema(
     [
         ("market_id", pa.string()),
         ("ts", pa.timestamp("us", tz="UTC")),
+        # Not in the milestone's row list. Added because the gap report cannot otherwise
+        # tell a missed sample inside a dense window from an ordinary 30-minute sparse
+        # interval, which is the one thing it exists to detect. It also makes each row
+        # self-describing about its horizon.
+        ("close_time", pa.timestamp("us", tz="UTC")),
         ("best_bid", pa.float64()),
         ("best_ask", pa.float64()),
         ("mid", pa.float64()),
@@ -41,6 +46,7 @@ class BookSnapshot(BaseModel):
 
     market_id: str
     ts: datetime
+    close_time: datetime
     best_bid: float | None = None
     best_ask: float | None = None
     mid: float | None = None
@@ -50,11 +56,20 @@ class BookSnapshot(BaseModel):
     book_hash: str
 
     @classmethod
-    def from_book(cls, book: Book, depth_delta: float = 0.01) -> BookSnapshot:
+    def from_book(
+        cls,
+        book: Book,
+        close_time: datetime,
+        observed_at: datetime | None = None,
+        depth_delta: float = 0.01,
+    ) -> BookSnapshot:
+        """`observed_at` overrides the book's own stamp so the scheduler records against
+        the same clock it schedules against. Mixing the two makes due-ness incoherent."""
         bid_depth, ask_depth = book.depth_within(depth_delta)
         return cls(
             market_id=book.market_id,
-            ts=book.ts,
+            ts=observed_at or book.ts,
+            close_time=close_time,
             best_bid=book.best_bid,
             best_ask=book.best_ask,
             mid=book.mid,
