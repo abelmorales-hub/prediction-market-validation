@@ -33,6 +33,11 @@ def conn() -> psycopg.Connection:
         cur.execute("drop schema if exists pmv_test cascade")
         cur.execute("create schema pmv_test")
         cur.execute("set search_path to pmv_test")
+        # In production these tables live in `public`, where Supabase already grants the
+        # three roles USAGE. Without mirroring that here the tables are simply invisible
+        # to them, and the revoke test would pass because nothing was reachable rather
+        # than because UPDATE was denied.
+        cur.execute("grant usage on schema pmv_test to anon, authenticated, service_role")
     c.commit()
     try:
         yield c
@@ -106,6 +111,10 @@ def test_update_on_predictions_is_rejected_for_the_supabase_roles(repo: Repo) ->
     for role in ("service_role", "authenticated", "anon"):
         with repo.conn.cursor() as cur:
             cur.execute(f"set local role {role}")
+            # Prove the row is reachable first. Otherwise an UndefinedTable error would
+            # look exactly like enforcement working.
+            cur.execute("select count(*) from predictions")
+            assert cur.fetchone()["count"] == 1, f"{role} cannot even see the table"
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 cur.execute("update predictions set p_hat = 0.99")
         repo.conn.rollback()
