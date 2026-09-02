@@ -186,6 +186,37 @@ def test_buffer_flushes_mid_sweep_not_only_at_the_end(tmp_path: Path) -> None:
     assert len(read_snapshots(tmp_path)) == 5
 
 
+def test_tick_absorbs_the_sweeps_own_duration(tmp_path: Path) -> None:
+    """Regression, first overnight run: sleeping a fixed `tick_s` *after* the sweep makes
+    every period tick_s + sweep_duration. A 60 s tick with a 10 s sweep sampled every
+    70 s, so each dense sample landed progressively later than the horizon it brackets."""
+    runner = SnapshotRunner(FakeSource([_market()]), tmp_path)
+    # Loop top, then 10 s later when the sleep is computed; next tick starts at +60.
+    clock = iter([0.0, 10.0, 60.0, 70.0, 120.0])
+    slept: list[float] = []
+    runner.run_forever(tick_s=60, max_ticks=3, sleep=slept.append, clock=lambda: next(clock))
+    assert slept == [50.0, 50.0], "sleep must be shortened by the time the sweep took"
+
+
+def test_a_sweep_that_overruns_its_tick_never_sleeps_negative(tmp_path: Path) -> None:
+    """Falling behind is for the gap report to surface, not for the grid to absorb."""
+    runner = SnapshotRunner(FakeSource([_market()]), tmp_path)
+    clock = iter([0.0, 95.0, 95.0])
+    slept: list[float] = []
+    runner.run_forever(tick_s=60, max_ticks=2, sleep=slept.append, clock=lambda: next(clock))
+    assert slept == [0.0]
+
+
+def test_a_sparse_step_does_not_step_over_a_dense_window(tmp_path: Path) -> None:
+    """`next_snapshot_at` holds the clamp, but the runner compared intervals directly and
+    never called it — a fully-tested function that production never reached."""
+    src = FakeSource([_market()])
+    runner = SnapshotRunner(src, tmp_path)
+    opening = CLOSE - timedelta(hours=25)  # the T-24h window opens here
+    runner.poll(src.markets, now=opening - timedelta(minutes=29))
+    assert runner.poll(src.markets, now=opening) != [], "must sample at the window opening"
+
+
 def test_run_forever_stops_after_max_ticks_and_flushes_each_one(tmp_path: Path) -> None:
     src = FakeSource([_market(volume=5000)])
     runner = SnapshotRunner(src, tmp_path)

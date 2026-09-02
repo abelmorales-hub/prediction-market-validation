@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from src.scheduler.cadence import DENSE, in_dense_window, interval_at
+from src.scheduler.cadence import DENSE, SPARSE, WINDOWS, in_dense_window
 
 # A tick is scheduled every `interval`, but a sweep over hundreds of markets, retries and
 # adaptive pacing all add jitter. Only a gap beyond this multiple is called a miss.
@@ -48,26 +48,38 @@ def classify(
     close_time: datetime,
     tolerance: float = TOLERANCE,
 ) -> Gap | None:
-    """One interval between consecutive snapshots. None when it is within cadence."""
-    expected = interval_at(start, close_time)
-    if (end - start) <= expected * tolerance:
-        return None
-    # A dense window anywhere inside the hole means a horizon may have gone unsampled.
-    severity = "CRITICAL" if _touches_dense(start, end, close_time) else "MISSED"
-    return Gap(market_id, start, end, expected, severity)
+    """One interval between consecutive snapshots. None when it is within cadence.
+
+    Severity turns on *how much dense-window time the hole actually covers*, not on
+    whether it touches one. Asking only whether a window is touched marks the ordinary
+    interval that leaves a window — one dense sample, then the window closes and the
+    30-minute cadence correctly resumes — as a missed horizon. That single confusion
+    produced 104 of the 273 CRITICAL gaps in the first overnight run, all of them the
+    scheduler behaving exactly as designed.
+    """
+    unsampled_dense = _dense_span(start, end, close_time)
+    if unsampled_dense > DENSE * tolerance:
+        return Gap(market_id, start, end, DENSE, "CRITICAL")
+    if (end - start) > SPARSE * tolerance:
+        return Gap(market_id, start, end, SPARSE, "MISSED")
+    return None
 
 
-def _touches_dense(start: datetime, end: datetime, close_time: datetime) -> bool:
-    if in_dense_window(start, close_time) or in_dense_window(end, close_time):
-        return True
-    # Step through the hole; a dense window is at least 30 min wide, so a 5-minute
-    # stride cannot step over one.
-    probe, stride = start, timedelta(minutes=5)
-    while probe < end:
-        if in_dense_window(probe, close_time):
-            return True
-        probe += stride
-    return False
+def _dense_span(start: datetime, end: datetime, close_time: datetime) -> timedelta:
+    """How much of the open interval (start, end) fell inside a dense window.
+
+    Measured, not probed. The windows are fixed offsets from the close and provably
+    disjoint, so overlaps can simply be summed.
+    """
+    total = timedelta(0)
+    for centre, half in WINDOWS:
+        w_start = close_time - (centre + half)
+        # A market stops being sampled at the close, so no window extends past it.
+        w_end = min(close_time - (centre - half), close_time)
+        overlap = min(end, w_end) - max(start, w_start)
+        if overlap > timedelta(0):
+            total += overlap
+    return total
 
 
 def find_gaps(
@@ -94,16 +106,27 @@ def coverage(rows: list[tuple[str, datetime, datetime]]) -> dict[str, float]:
     dense = [r for r in rows if in_dense_window(r[1], r[2])]
     if not dense:
         return {"dense_samples": 0.0, "dense_markets": 0.0}
-    spans: dict[str, list[datetime]] = {}
-    for market_id, ts, _ in dense:
-        spans.setdefault(market_id, []).append(ts)
+    # Keyed by (market, which window). Spanning first-to-last per *market* would stretch
+    # one span across the sparse hours between the T-24h and T-6h windows and count every
+    # one of those minutes as an expected sample, so a correctly-sampled market that
+    # lived long enough to reach two windows would report a fraction of its true rate.
+    spans: dict[tuple[str, int], list[datetime]] = {}
+    for market_id, ts, close_time in dense:
+        spans.setdefault((market_id, _window_index(ts, close_time)), []).append(ts)
     expected = 0.0
     for stamps in spans.values():
         stamps.sort()
-        window = (stamps[-1] - stamps[0]) / DENSE
-        expected += max(window + 1, 1)
+        expected += max((stamps[-1] - stamps[0]) / DENSE + 1, 1)
     return {
         "dense_samples": float(len(dense)),
-        "dense_markets": float(len(spans)),
+        "dense_markets": float(len({m for m, _ in spans})),
         "capture_rate": len(dense) / expected if expected else 1.0,
     }
+
+
+def _window_index(ts: datetime, close_time: datetime) -> int:
+    ttc = close_time - ts
+    for i, (centre, half) in enumerate(WINDOWS):
+        if abs(ttc - centre) <= half:
+            return i
+    return -1

@@ -90,6 +90,39 @@ def test_single_snapshot_has_no_intervals() -> None:
     assert find_gaps([("A", at(hours=48), CLOSE)]) == []
 
 
+def test_leaving_a_dense_window_is_not_a_critical_gap() -> None:
+    """Regression, first overnight run. Last dense sample just before the window closes,
+    then the 30-minute cadence correctly resumes. Judging the whole interval against the
+    1-minute cadence because it *starts* inside the window marked 104 correct intervals
+    as missed horizons."""
+    gap = classify("A", at(hours=23, minutes=1), at(hours=22, minutes=30), CLOSE)
+    assert gap is None, "the window closed 1 min in; the rest is ordinary sparse cadence"
+
+
+def test_entering_a_dense_window_late_is_still_critical() -> None:
+    """The mirror case must keep firing: a hole that runs well into a window."""
+    gap = classify("A", at(hours=25, minutes=20), at(hours=24, minutes=30), CLOSE)
+    assert gap is not None and gap.severity == "CRITICAL"
+
+
+def test_severity_tracks_dense_minutes_lost_not_mere_contact() -> None:
+    inside = classify("A", at(hours=24), at(hours=23, minutes=56), CLOSE)
+    assert inside is not None and inside.severity == "CRITICAL", "4 dense min lost"
+    grazing = classify("A", at(hours=23, minutes=0, seconds=30), at(hours=22), CLOSE)
+    assert grazing is None, "30 s of dense time lost is within tolerance"
+
+
+def test_coverage_is_per_window_not_per_market() -> None:
+    """A market sampled cleanly in two separate windows must not be charged for the
+    sparse hours between them."""
+    rows = [("A", at(hours=24) + timedelta(minutes=i), CLOSE) for i in range(-2, 3)]
+    rows += [("A", at(hours=6) + timedelta(minutes=i), CLOSE) for i in range(-2, 3)]
+    stats = coverage(rows)
+    assert stats["dense_samples"] == 10
+    assert stats["dense_markets"] == 1
+    assert stats["capture_rate"] == 1.0, "both windows fully sampled"
+
+
 def test_coverage_counts_only_dense_samples() -> None:
     rows = [("A", at(hours=48), CLOSE)] + [
         ("A", at(hours=24) + timedelta(minutes=i), CLOSE) for i in range(-3, 4)

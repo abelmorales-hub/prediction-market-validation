@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from src.ingest.base import Market, MarketDataSource
-from src.scheduler.cadence import in_dense_window, interval_at
+from src.scheduler.cadence import in_dense_window, next_snapshot_at
 from src.storage.parquet_store import BookSnapshot, read_snapshots, write_snapshots
 from src.storage.supabase_repo import Repo
 
@@ -97,12 +97,21 @@ class SnapshotRunner:
         )
 
     def is_due(self, market: Market, now: datetime) -> bool:
+        """Due once `now` has reached the instant the cadence scheduled from `last`.
+
+        This goes through `next_snapshot_at` rather than comparing against
+        `interval_at` directly, because only the former clamps a sparse step to a dense
+        window it would otherwise step over. Comparing intervals here looks equivalent
+        and is not: a market 29 minutes from a window opening gets a 30-minute step,
+        lands inside the window, and the horizon it exists to bracket is never sampled.
+        """
         if now >= market.close_time:
             return False
         last = self._last.get(market.market_id)
         if last is None:
             return True
-        return now - last >= interval_at(now, market.close_time)
+        due = next_snapshot_at(last, market.close_time)
+        return due is not None and now >= due
 
     def poll(self, markets: Sequence[Market], now: datetime | None = None) -> list[BookSnapshot]:
         """One sweep. Returns what was captured this call, not what was flushed."""
@@ -186,18 +195,27 @@ class SnapshotRunner:
         max_ticks: int | None = None,
         sleep: Callable[[float], None] | None = None,
         refresh_every: int = 30,
+        clock: Callable[[], float] | None = None,
     ) -> RunStats:
         """Poll on a fixed tick. The cadence decides which markets are due on each one.
 
         The buffer is flushed every tick rather than only when full, so an abrupt kill
         loses at most one tick of observations rather than up to `buffer_size`.
+
+        Each tick sleeps until the next grid instant rather than for a fixed duration.
+        Sleeping `tick_s` *after* the sweep adds the sweep's own cost to every period, so
+        a 60-second tick with a 10-second sweep samples every 70 seconds — under the gap
+        report's tolerance individually, but it compounds across a dense window and every
+        sample lands progressively later than the horizon it is supposed to bracket.
         """
         import time
 
         sleep = sleep or time.sleep
+        clock = clock or time.monotonic
         markets: list[Market] = []
         tick = 0
         while max_ticks is None or tick < max_ticks:
+            started = clock()
             # Nothing inside a tick may end the run. An unattended collector that dies
             # on a transient block leaves a permanent hole in the dataset, and the whole
             # point of the exercise is that missing data is not recoverable later.
@@ -218,5 +236,8 @@ class SnapshotRunner:
                 self.flush()
             tick += 1
             if max_ticks is None or tick < max_ticks:
-                sleep(tick_s)
+                # A sweep that overran its tick gets no sleep at all rather than a
+                # negative one, and the next tick starts immediately. Falling behind is
+                # reported by the gap report, not hidden by silently stretching the grid.
+                sleep(max(0.0, tick_s - (clock() - started)))
         return self.stats
