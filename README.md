@@ -4,7 +4,12 @@ Does a forecast `p̂` beat the market's own price at the same timestamp, out of 
 with enough power to rule out luck?
 
 Read-only. No orders, no wallet, no keys, no capital logic. See the milestone plan in
-the build prompt; this repo currently contains **M0–M3**.
+the build prompt; this repo contains **M0–M6**, the complete data and scoring layers.
+
+No forecasting model exists here, by design. The scorer was built before any model and
+cannot import one — `src/scoring/` is forbidden from seeing `src/baselines/`,
+`src/models/` or `src/analysis/`, enforced in CI by import-linter rather than by
+discipline.
 
 ## Setup
 
@@ -20,7 +25,26 @@ uv run python -m scripts.dump_raw_samples   # re-record data/raw_samples/
 ```bash
 uv run python -m scripts.snapshot --minutes 60     # 0 = until interrupted
 uv run python -m scripts.gap_report --days 1       # exits 1 on a CRITICAL gap
+uv run python -m scripts.watch_resolutions --hours 24
 ```
+
+## Scoring
+
+```bash
+uv run python -m scripts.emit_baselines            # must run while markets are OPEN
+uv run python -m scripts.score --out reports/validation.md
+```
+
+`emit_baselines` writes one prediction per (market, horizon, baseline) into the
+append-only `predictions` table, stamped with the market price observed at that same
+instant. **It cannot be backfilled**: the database refuses a prediction stamped at or
+after the market's close, so a horizon that passes without this job running is gone. Run
+it alongside the snapshotter.
+
+A horizon is represented by the nearest snapshot *at or before* it, within five minutes,
+and by nothing otherwise — never a later one. A snapshot taken after T-1h has seen
+trading the forecast had not, and scoring it as contemporaneous is a look-ahead leak that
+inflates every number downstream while leaving them all plausible.
 
 The snapshotter is resumable: all scheduling state is the last recorded timestamp per
 market, read back from Parquet on start. A hard kill costs at most one buffer.

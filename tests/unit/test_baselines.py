@@ -53,10 +53,21 @@ def test_shrink_wins_in_the_tails_while_knowing_nothing() -> None:
     assert d.mean() > 0, "shrink should beat an overconfident market in the tail"
 
 
-def test_base_rate_is_constant_at_the_prior_rate() -> None:
-    prior = np.array([1.0, 1.0, 0.0, 0.0, 1.0])
-    out = baseline_base_rate(prior, size=3)
-    np.testing.assert_allclose(out, [0.6, 0.6, 0.6])
+def test_base_rate_is_per_category() -> None:
+    rates = {"Sports": 0.6, "Crypto": 0.2}
+    out = baseline_base_rate(rates, ["Sports", "Crypto", "Sports"])
+    np.testing.assert_allclose(out, [0.6, 0.2, 0.6])
+
+
+def test_base_rate_refuses_an_unseen_category_rather_than_guessing() -> None:
+    """Substituting 0.5 would score an absence of evidence as a real forecast."""
+    with pytest.raises(ValueError, match="no rate for categories"):
+        baseline_base_rate({"Sports": 0.6}, ["Sports", "Politics"])
+
+
+def test_base_rate_accepts_an_explicit_default() -> None:
+    out = baseline_base_rate({"Sports": 0.6}, ["Sports", "Politics"], default=0.5)
+    np.testing.assert_allclose(out, [0.6, 0.5])
 
 
 @pytest.mark.parametrize(
@@ -66,9 +77,8 @@ def test_base_rate_is_constant_at_the_prior_rate() -> None:
         (baseline_market, (np.array([1.5]),), r"\[0, 1\]"),
         (baseline_market, (np.array([np.nan]),), "non-finite"),
         (baseline_shrink, (np.array([0.5]),), "alpha"),
-        (baseline_base_rate, (np.array([]), 3), "empty"),
-        (baseline_base_rate, (np.array([0.5]), 3), "binary"),
-        (baseline_base_rate, (np.array([1.0]), 0), "size"),
+        (baseline_base_rate, ({}, []), "empty categories"),
+        (baseline_base_rate, ({"a": 1.5}, ["a"]), r"outside \[0, 1\]"),
     ],
 )
 def test_bad_input_raises(fn: object, args: tuple, message: str) -> None:

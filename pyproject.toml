@@ -78,3 +78,13 @@ name = "scoring must not reach the network or the database"
 type = "forbidden"
 source_modules = ["src.scoring"]
 forbidden_modules = ["src.ingest", "src.storage", "src.scheduler", "src.resolution"]
+
+# src.analysis is the layer *above* scoring: it assembles forecasts and hands them over
+# as data. Listed explicitly rather than left to the contracts above, which only catch it
+# through whichever submodule happens to import storage or baselines today. That is
+# accidental protection, and it would evaporate the moment someone made frame.py pure.
+[[tool.importlinter.contracts]]
+name = "scoring must not depend on the layer that feeds it"
+type = "forbidden"
+source_modules = ["src.scoring"]
+forbidden_modules = ["src.analysis"]

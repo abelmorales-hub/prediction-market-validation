@@ -10,6 +10,8 @@ takes forecasts as data. That keeps the scorer unable to see what produced a num
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -52,20 +54,33 @@ def baseline_shrink(market_mid: object, alpha: float = 0.9, centre: float = 0.5)
     return np.asarray(alpha * _as_mid(market_mid) + (1.0 - alpha) * centre, dtype=np.float64)
 
 
-def baseline_base_rate(y_prior: object, size: int) -> FloatArray:
-    """A constant forecast at the resolution rate observed in `y_prior`.
+def baseline_base_rate(
+    category_rates: Mapping[str, float],
+    categories: Sequence[str],
+    default: float | None = None,
+) -> FloatArray:
+    """Each row forecast at its category's historical YES rate.
 
-    **`y_prior` must not overlap the outcomes being scored.** The base rate is a forecast,
-    so it is subject to P2 like any other: computing it from the same rows it is scored
-    against leaks the answer and produces a baseline that beats the market for free. The
-    caller owns that split — this function cannot check it, which is why it is stated here
-    rather than assumed.
+    **`category_rates` must be computed from resolutions strictly prior to the rows being
+    scored.** A base rate is a forecast and P2 binds it like any other: derive it from the
+    same outcomes it is scored against and it beats the market for free. The split belongs
+    to the caller — this function receives rates already computed and cannot verify their
+    provenance, which is why it is stated here rather than assumed.
+
+    A category with no rate raises unless `default` is given. Silently substituting 0.5
+    for an unseen category would score it as a real forecast rather than an absence.
     """
-    prior = np.asarray(y_prior, dtype=np.float64)
-    if prior.size == 0:
-        raise ValueError("empty y_prior")
-    if not np.all((prior == 0.0) | (prior == 1.0)):
-        raise ValueError("y_prior must be binary 0/1")
-    if size < 1:
-        raise ValueError("size must be >= 1")
-    return np.full(size, float(prior.mean()), dtype=np.float64)
+    if not categories:
+        raise ValueError("empty categories")
+    for name, rate in category_rates.items():
+        if not 0.0 <= rate <= 1.0:
+            raise ValueError(f"rate for {name!r} outside [0, 1]")
+    if default is not None and not 0.0 <= default <= 1.0:
+        raise ValueError("default outside [0, 1]")
+
+    missing = {c for c in categories if c not in category_rates}
+    if missing and default is None:
+        raise ValueError(f"no rate for categories: {sorted(missing)}")
+    return np.asarray(
+        [category_rates.get(c, default) for c in categories], dtype=np.float64
+    )
