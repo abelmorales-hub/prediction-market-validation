@@ -27,6 +27,7 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "import-linter>=2.1",
+    "scipy-stubs>=1.14",
 ]
 
 # Not an installable package; `src` and `scripts` are imported from the repo root.
@@ -60,3 +61,20 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["src"]
+
+# The golden rule, enforced mechanically. A scorer that can see the model is a scorer
+# that will eventually be bent to flatter it, and no amount of intent prevents that.
+[tool.importlinter]
+root_packages = ["src"]
+
+[[tool.importlinter.contracts]]
+name = "scoring must not see models or baselines"
+type = "forbidden"
+source_modules = ["src.scoring"]
+forbidden_modules = ["src.models", "src.baselines"]
+
+[[tool.importlinter.contracts]]
+name = "scoring must not reach the network or the database"
+type = "forbidden"
+source_modules = ["src.scoring"]
+forbidden_modules = ["src.ingest", "src.storage", "src.scheduler", "src.resolution"]
