@@ -185,6 +185,7 @@ class KalshiSource:
         rows = self._paged(
             {"limit": 200, "status": "settled", "min_close_ts": int(since.timestamp())}
         )
+        now = datetime.now(UTC)
         out = []
         for row in rows:
             m = KalshiMarket.model_validate(row)
@@ -194,14 +195,30 @@ class KalshiSource:
             out.append(
                 Resolution(
                     market_id=m.ticker,
-                    # Kalshi exposes no explicit settlement timestamp on the market
-                    # object; expiration_time is the closest observable proxy.
-                    resolved_at=m.expiration_time or m.close_time,
+                    resolved_at=_settled_at(m, now),
                     outcome=outcome,
                     raw_result=m.result,
                 )
             )
         return out
+
+
+def _settled_at(m: KalshiMarket, now: datetime) -> datetime:
+    """Best available settlement timestamp. Kalshi exposes none directly.
+
+    `expiration_time` is a *scheduled* expiry, not the moment of settlement, and for
+    markets that close early it can sit days in the future while `status` already reads
+    'finalized'. Using it unguarded put resolution timestamps after `now`, which silently
+    excluded every such market from any window query — reconciliation reported zero
+    resolutions while the venue had settled thousands.
+
+    So: use it when it is in the past, otherwise fall back to `close_time`. Both are real
+    venue timestamps and both are lower bounds on when the outcome became known. Neither
+    is the settlement instant, and nothing downstream should treat it as one.
+    """
+    if m.expiration_time is not None and m.expiration_time <= now:
+        return m.expiration_time
+    return m.close_time
 
 
 def build_book(

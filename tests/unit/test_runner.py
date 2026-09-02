@@ -219,3 +219,35 @@ def test_dense_window_markets_are_swept_first(tmp_path: Path) -> None:
     near = _market("near", close=CLOSE + timedelta(hours=24))  # in its T-24h window now
     ordered = SnapshotRunner._by_urgency([far, near], now=CLOSE)
     assert [m.market_id for m in ordered] == ["near", "far"]
+
+
+def test_a_failed_universe_refresh_does_not_end_the_run(tmp_path: Path) -> None:
+    """An unattended collector must not die on a transient block: a hole in the data is
+    not recoverable later, which is the entire premise of forward-testing."""
+
+    class Flaky(FakeSource):
+        def list_open_markets(self, **kw: object) -> list[Market]:
+            raise ConnectionError("reset")
+
+    runner = SnapshotRunner(Flaky([_market()]), tmp_path)
+    stats = runner.run_forever(tick_s=1, max_ticks=3, refresh_every=1, sleep=lambda _: None)
+    assert stats.failures["universe:ConnectionError"] == 3, "all three ticks tried and failed"
+    assert stats.failed == 0, "no market was reachable to fail on"
+
+
+def test_a_sweep_failure_still_flushes_and_continues(tmp_path: Path) -> None:
+    src = FakeSource([_market()])
+    runner = SnapshotRunner(src, tmp_path)
+    calls = {"n": 0}
+    original = runner.poll
+
+    def exploding(markets, now=None):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom")
+        return original(markets, now)
+
+    runner.poll = exploding  # type: ignore[method-assign]
+    stats = runner.run_forever(tick_s=1, max_ticks=2, sleep=lambda _: None)
+    assert stats.failures["sweep:RuntimeError"] == 1
+    assert calls["n"] == 2, "the loop kept going after the failed sweep"

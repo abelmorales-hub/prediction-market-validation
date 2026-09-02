@@ -174,6 +174,28 @@ class Repo:
 
     # -- reads ------------------------------------------------------------
 
+    def market_meta(self, market_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+        """category and end_date for the given markets. Missing ids are simply absent,
+        which is how the watcher detects what still needs cataloguing."""
+        if not market_ids:
+            return {}
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "select market_id, category, end_date, event_family "
+                "from markets where market_id = any(%s)",
+                (list(market_ids),),
+            )
+            return {r["market_id"]: dict(r) for r in cur.fetchall()}
+
+    def outcome_ids(self, since: datetime, until: datetime) -> set[str]:
+        """Markets we have an outcome for, by resolution time."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "select market_id from outcomes where resolved_at >= %s and resolved_at < %s",
+                (since, until),
+            )
+            return {r["market_id"] for r in cur.fetchall()}
+
     def scored_pairs(self, category: str | None = None) -> list[dict[str, Any]]:
         """Resolved markets joined to their predictions: the scorer's input.
 

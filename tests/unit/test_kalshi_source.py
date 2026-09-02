@@ -1,6 +1,6 @@
 """KalshiSource against respx, driven by the recorded responses. No network."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -174,3 +174,40 @@ def test_market_model_is_immutable() -> None:
     )
     with pytest.raises(ValidationError):
         m.market_id = "B-2"  # type: ignore[misc]
+
+
+@respx.mock
+def test_future_expiration_time_does_not_become_the_resolution_time(
+    source: KalshiSource,
+) -> None:
+    """expiration_time is a scheduled expiry, not a settlement instant. For a market that
+    closed early it can sit days ahead while status already reads 'finalized'. Letting it
+    through put resolved_at after now, which silently excluded the market from every
+    window query — reconciliation read zero while thousands had settled."""
+    future = (datetime.now(UTC) + timedelta(days=5)).isoformat().replace("+00:00", "Z")
+    past = (datetime.now(UTC) - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+    rows = {
+        "cursor": "",
+        "markets": [
+            _row("A-1", result="yes", status="finalized", close_time=past, expiration_time=future),
+        ],
+    }
+    respx.get(f"{BASE}/markets").mock(return_value=httpx.Response(200, json=rows))
+    (res,) = source.list_recently_resolved(datetime.now(UTC) - timedelta(days=1))
+    assert res.resolved_at <= datetime.now(UTC), "a settled market cannot resolve in the future"
+    assert res.resolved_at == datetime.fromisoformat(past.replace("Z", "+00:00"))
+
+
+@respx.mock
+def test_past_expiration_time_is_used_when_available(source: KalshiSource) -> None:
+    close = (datetime.now(UTC) - timedelta(hours=5)).isoformat().replace("+00:00", "Z")
+    expiry = (datetime.now(UTC) - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    rows = {
+        "cursor": "",
+        "markets": [
+            _row("A-1", result="no", status="finalized", close_time=close, expiration_time=expiry),
+        ],
+    }
+    respx.get(f"{BASE}/markets").mock(return_value=httpx.Response(200, json=rows))
+    (res,) = source.list_recently_resolved(datetime.now(UTC) - timedelta(days=1))
+    assert res.resolved_at == datetime.fromisoformat(expiry.replace("Z", "+00:00"))

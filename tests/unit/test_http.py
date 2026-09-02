@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from src.ingest.http import DiskCache, PacedClient, TransientHTTPError
+from src.ingest.http import MAX_ATTEMPTS, DiskCache, PacedClient, TransientHTTPError
 
 BASE = "https://api.test/v2"
 
@@ -54,7 +54,7 @@ def test_retries_are_bounded(client: PacedClient) -> None:
     route = respx.get(f"{BASE}/x").mock(return_value=httpx.Response(503))
     with pytest.raises(TransientHTTPError):
         client.get_json("/x")
-    assert route.call_count == 5
+    assert route.call_count == MAX_ATTEMPTS
 
 
 @respx.mock

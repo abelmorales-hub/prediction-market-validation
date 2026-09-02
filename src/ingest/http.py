@@ -42,6 +42,14 @@ class TransientHTTPError(Exception):
     """429 or 5xx: worth retrying. 4xx is not and is raised as HTTPStatusError."""
 
 
+# Sized for unattended collection, not for an interactive script. Kalshi's TLS resets
+# have been observed to outlast a 5-attempt / 30-second budget, and for a scheduler
+# meant to run for months a lost sweep is a permanent hole in the dataset.
+MAX_ATTEMPTS = 8
+RETRY_INITIAL_S = 2.0
+RETRY_MAX_S = 120.0
+
+
 class DiskCache:
     """Metadata cache. The question text does not change; the book does, so only
     long-lived metadata is ever cached."""
@@ -128,8 +136,8 @@ class PacedClient:
 
     @retry(
         retry=retry_if_exception_type((*TRANSIENT_EXC, TransientHTTPError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1.0, max=30.0),
+        stop=stop_after_attempt(MAX_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=RETRY_INITIAL_S, max=RETRY_MAX_S),
         reraise=True,
     )
     def _send(self, path: str, params: dict[str, Any] | None) -> httpx.Response:

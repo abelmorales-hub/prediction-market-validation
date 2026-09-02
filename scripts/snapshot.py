@@ -14,6 +14,7 @@ import sys
 from src.config import get_settings
 from src.ingest.kalshi import KalshiSource
 from src.scheduler.runner import SnapshotRunner
+from src.storage.supabase_repo import Repo, connect
 
 
 def main() -> int:
@@ -23,6 +24,7 @@ def main() -> int:
     ap.add_argument("--horizon-hours", type=int, default=30, help="track markets closing within")
     ap.add_argument("--min-volume", type=float, default=1000.0, help="liquidity floor")
     ap.add_argument("--max-markets", type=int, default=400, help="cap on tracked markets")
+    ap.add_argument("--no-catalogue", action="store_true", help="skip the Supabase catalogue")
     args = ap.parse_args()
 
     logging.basicConfig(
@@ -33,6 +35,15 @@ def main() -> int:
     cfg = get_settings()
     root = cfg.data_dir / "snapshots"
 
+    # The catalogue is what lets the resolution watcher and reconciliation know which
+    # markets we were actually watching. Without it `markets` stays empty and coverage
+    # cannot be measured against anything meaningful.
+    conn = None
+    repo = None
+    if not args.no_catalogue and cfg.supabase_db_url:
+        conn = connect(cfg.supabase_db_url)
+        repo = Repo(conn)
+
     with KalshiSource(
         cfg.kalshi_base_url,
         cfg.http_timeout_s,
@@ -40,7 +51,11 @@ def main() -> int:
         metadata_ttl_s=cfg.metadata_cache_ttl_s,
     ) as source:
         runner = SnapshotRunner(
-            source, root, min_volume=args.min_volume, max_markets=args.max_markets
+            source,
+            root,
+            min_volume=args.min_volume,
+            max_markets=args.max_markets,
+            repo=repo,
         )
         ticks = int(args.minutes * 60 / args.tick) if args.minutes else None
         try:
@@ -54,6 +69,8 @@ def main() -> int:
             stats = runner.stats
         finally:
             runner.flush()
+            if conn is not None:
+                conn.close()
 
     print("\n" + "  ".join(f"{k}={v}" for k, v in stats.as_dict().items()))
     if stats.failures:

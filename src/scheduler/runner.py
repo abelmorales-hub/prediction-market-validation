@@ -29,6 +29,7 @@ from pathlib import Path
 from src.ingest.base import Market, MarketDataSource
 from src.scheduler.cadence import in_dense_window, interval_at
 from src.storage.parquet_store import BookSnapshot, read_snapshots, write_snapshots
+from src.storage.supabase_repo import Repo
 
 log = logging.getLogger(__name__)
 
@@ -58,12 +59,17 @@ class SnapshotRunner:
         buffer_size: int = 100,
         min_volume: float = 1000.0,
         max_markets: int = 400,
+        repo: Repo | None = None,
     ) -> None:
         self.source = source
         self.root = root
         self.buffer_size = buffer_size
         self.min_volume = min_volume
         self.max_markets = max_markets
+        # Optional: mirror the tracked universe into the Supabase catalogue. Without it
+        # `markets` stays empty, the resolution watcher has nothing to join against, and
+        # reconciliation cannot tell which resolved markets we were even watching.
+        self.repo = repo
         self.stats = RunStats()
         self._buffer: list[BookSnapshot] = []
         self._last: dict[str, datetime] = {}
@@ -160,6 +166,12 @@ class SnapshotRunner:
             self.min_volume,
             len(kept),
         )
+        if self.repo is not None and kept:
+            try:
+                self.repo.upsert_markets(kept)
+            except Exception as exc:  # noqa: BLE001 - catalogue is secondary to capture
+                self.stats.failures[f"catalogue:{type(exc).__name__}"] += 1
+                log.warning("catalogue upsert failed: %s", exc)
         return kept
 
     def run_once(self, closing_within_s: int = 30 * 3600) -> list[BookSnapshot]:
@@ -186,10 +198,24 @@ class SnapshotRunner:
         markets: list[Market] = []
         tick = 0
         while max_ticks is None or tick < max_ticks:
+            # Nothing inside a tick may end the run. An unattended collector that dies
+            # on a transient block leaves a permanent hole in the dataset, and the whole
+            # point of the exercise is that missing data is not recoverable later.
             if tick % refresh_every == 0:
-                markets = self.universe(closing_within_s)
-            self.poll(markets)
-            self.flush()
+                try:
+                    markets = self.universe(closing_within_s)
+                except Exception as exc:  # noqa: BLE001
+                    self.stats.failures[f"universe:{type(exc).__name__}"] += 1
+                    log.warning(
+                        "universe refresh failed, keeping %d markets: %s", len(markets), exc
+                    )
+            try:
+                self.poll(markets)
+            except Exception as exc:  # noqa: BLE001
+                self.stats.failures[f"sweep:{type(exc).__name__}"] += 1
+                log.exception("sweep failed, continuing: %s", exc)
+            finally:
+                self.flush()
             tick += 1
             if max_ticks is None or tick < max_ticks:
                 sleep(tick_s)
