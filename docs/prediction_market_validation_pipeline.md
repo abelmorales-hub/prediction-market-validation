@@ -242,7 +242,16 @@ Compute the *market's own* Brier at T-24h per category. It must land in a plausi
 Feed `p̂ = m` (the mid itself) into the scorer. **`BSS` must come out exactly 0.000.** If it doesn't, your scoring code is broken — usually timestamp misalignment between the prediction and the price you compare it against. This test costs 20 minutes and saves you months.
 
 **G2b — Permutation test**
-Shuffle the `y_i` randomly and re-run. The model must show no skill. If it does, there is leakage.
+Shuffle the `y_i` randomly and re-run. **The criterion is one-sided: the observed BSS must not exceed the permuted null.** If it sits in the upper tail, the model knows something about the outcome that it should not, and that is leakage.
+
+The original wording here — "must show no skill", read as *the null centres on zero* — is wrong for any forecast whose sharpness differs from the market's. It was corrected on 2026-09-03 after the first live run. Shuffled labels are unpredictable, so a forecast closer to 0.5 scores better against them than a sharp one does. `baseline_shrink` is deliberately flatter than the market (mean `|p − 0.5|` of 0.245 against 0.273) and its permuted null therefore centres at **+0.053**, not at 0. A gate asserting the null is centred would reject a correct model for being flat.
+
+Two further limits, both observed rather than reasoned:
+
+- **The gate is vacuous for `p̂ = m`.** BSS is identically 0 under every permutation, with zero variance, so the test can never say anything about the null model. G2 already covers it.
+- **Permuting the model's predictions instead of `y` does not repair the sharpness confound.** It destroys calibration so completely (null mean BSS ≈ −1.3) that a deliberately leaking control and an honest baseline both land at p = 0.000. That variant tests whether a forecast is attached to the right markets, not whether it has skill beyond them. Do not substitute it.
+
+Run it with `scripts/permutation_test.py`. Note that both current baselines are pure functions of the market price at the stamped instant and therefore *cannot* leak: this gate only earns its keep once a model with real features exists — which is also when the sharpness confound will bite hardest.
 
 **G3 — Statistical gate**
 In **one pre-declared category**: `mean(d) > 0` with a clustered bootstrap 95% CI excluding zero, effective `n` sufficient per §5, and the improvement **not concentrated in the tail buckets**.
