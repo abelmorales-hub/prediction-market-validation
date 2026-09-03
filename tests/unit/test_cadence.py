@@ -12,6 +12,7 @@ import pytest
 from src.scheduler.cadence import (
     DENSE,
     SPARSE,
+    WINDOWS,
     dense_window_starts,
     in_dense_window,
     interval_at,
@@ -48,11 +49,11 @@ def test_interval_for_each_region(when: datetime, expected: timedelta) -> None:
 @pytest.mark.parametrize(
     "when,dense",
     [
-        # T-24h +/- 1h: [T-25h, T-23h]
-        (at(hours=25), True),
-        (at(hours=23), True),
-        (at(hours=25, seconds=1), False),
-        (at(hours=22, minutes=59, seconds=59), False),
+        # T-24h +/- 15min: [T-24h15, T-23h45]
+        (at(hours=24, minutes=15), True),
+        (at(hours=23, minutes=45), True),
+        (at(hours=24, minutes=15, seconds=1), False),
+        (at(hours=23, minutes=44, seconds=59), False),
         # T-6h +/- 30min: [T-6h30, T-5h30]
         (at(hours=6, minutes=30), True),
         (at(hours=5, minutes=30), True),
@@ -88,10 +89,13 @@ def test_sparse_region_steps_thirty_minutes() -> None:
 
 
 def test_sparse_step_is_clamped_to_the_window_opening() -> None:
-    """The bug this prevents: a 30-minute step starting shortly before T-25h lands deep
-    inside the dense window, and its opening minutes are never sampled."""
-    now = at(hours=25, minutes=20)  # 20 min before the T-24h window opens
-    assert next_snapshot_at(now, CLOSE) == at(hours=25), "should stop at the window edge"
+    """The bug this prevents: a 30-minute step starting shortly before the T-24h window
+    lands deep inside it, and its opening minutes are never sampled.
+
+    The narrower the window, the more this matters: at +/-15 min a single unclamped
+    sparse step clears the entire window without taking one sample."""
+    now = at(hours=24, minutes=35)  # 20 min before the T-24h window opens
+    assert next_snapshot_at(now, CLOSE) == at(hours=24, minutes=15), "stop at the edge"
     assert in_dense_window(next_snapshot_at(now, CLOSE), CLOSE)
 
 
@@ -118,7 +122,7 @@ def test_closed_market_has_no_next_snapshot() -> None:
 
 def test_window_starts_are_ordered_and_correct() -> None:
     assert dense_window_starts(CLOSE) == [
-        at(hours=25),
+        at(hours=24, minutes=15),
         at(hours=6, minutes=30),
         at(hours=1, minutes=15),
     ]
@@ -137,3 +141,20 @@ def test_walking_the_schedule_samples_every_window() -> None:
         target = CLOSE - horizon
         nearest = min(abs((s - target).total_seconds()) for s in seen)
         assert nearest <= 60, f"horizon T-{horizon} unsampled within a minute"
+
+
+def test_the_t24_window_stays_wider_than_the_emit_tolerance() -> None:
+    """The T-24h half-width was cut from 1h to 15 min on 2026-09-03 to keep the sweep
+    inside its cadence. It must not be cut again below what the scorer needs.
+
+    A horizon is represented by the nearest snapshot at or before it within five
+    minutes (scripts/emit_baselines.py --tolerance-min). The dense window therefore has
+    to open at least that far ahead of the horizon, or the horizon is unrepresentable
+    and no error is raised anywhere -- the prediction is simply never emitted.
+    """
+    emit_tolerance = timedelta(minutes=5)
+    t24_half_width = next(half for centre, half in WINDOWS if centre == timedelta(hours=24))
+    assert t24_half_width >= emit_tolerance * 2, (
+        f"T-24h half-width {t24_half_width} leaves too little margin over the "
+        f"{emit_tolerance} emit tolerance"
+    )

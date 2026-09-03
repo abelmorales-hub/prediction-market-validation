@@ -3,10 +3,23 @@
 Dense sampling brackets the three prediction horizons (T-24h, T-6h, T-1h) because those
 are the instants the scorer compares against. Everywhere else is background coverage.
 
-    T-24h ± 1h      -> 1 min
+    T-24h ± 15 min  -> 1 min
     T-6h  ± 30 min  -> 1 min
     T-1h  ± 15 min  -> 1 min
     otherwise       -> 30 min
+
+The T-24h half-width was ±1h until 2026-09-03. It was narrowed because the sweep has
+to finish inside the dense interval and no longer reliably did: tracking 400 markets
+put a projected 224 of them in a dense window simultaneously, which at a measured
+0.21 s per book is a ~47 s sweep against a 60 s cadence. That fits only until one of
+the venue's TLS resets lands inside a window, and those take ~60 s to recover — a
+CRITICAL gap, which is what G0 fails on.
+
+±15 min costs nothing the scorer uses. A horizon is represented by the nearest
+snapshot at or before it within five minutes, so fifteen minutes of one-minute
+samples ahead of the horizon brackets it three times over. What it does cost is book
+depth far from the horizon, which a later economic simulation (G4) might want; that
+is a trade of data the study does not yet need for coverage it does.
 """
 
 from __future__ import annotations
@@ -18,7 +31,7 @@ SPARSE = timedelta(minutes=30)
 
 # (centre before close, half-width)
 WINDOWS: tuple[tuple[timedelta, timedelta], ...] = (
-    (timedelta(hours=24), timedelta(hours=1)),
+    (timedelta(hours=24), timedelta(minutes=15)),
     (timedelta(hours=6), timedelta(minutes=30)),
     (timedelta(hours=1), timedelta(minutes=15)),
 )

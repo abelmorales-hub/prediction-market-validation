@@ -241,3 +241,46 @@ keep the original instant and declare the window void.
 `scripts/gap_report.py` gained `--since` in the same change, because a rolling `--days`
 window cannot evaluate a fixed analysis window: it fails on holes that predate the study
 and are already excluded from it.
+
+### Amendment 2 — 2026-09-03, T-24h dense window narrowed to ±15 min
+
+**Changes what G0 measures. Read the retroactive note below before citing any G0 result.**
+
+The T-24h dense half-width went from ±1h to ±15 min at approximately 19:36 UTC.
+Permitted by §1, which reserves the spent sample for design decisions including cadence.
+
+**Why.** The sweep must finish inside its own dense interval. Tracking 400 markets put a
+projected **224** in a dense window simultaneously, which at a measured 0.21 s per book
+is a ~47 s sweep against a 60 s cadence — 78% of budget, before any retry. The venue's
+TLS resets take ~60 s to recover, so a single reset inside a dense window would overrun
+and produce exactly the CRITICAL gap G0 fails on. After the change the projected peak is
+**127 markets, ~27 s, 44% of budget**.
+
+**What it costs.** Book depth far from the horizon, which a later economic simulation
+(G4) may want. It costs nothing the pre-declared endpoint uses: a horizon is represented
+by the nearest snapshot at or before it within five minutes, so fifteen minutes of
+one-minute samples brackets it three times over. `test_the_t24_window_stays_wider_than_
+the_emit_tolerance` pins that relationship so the window cannot later be narrowed below
+what the scorer needs.
+
+**This is mitigation, not immunity.** A full 60 s TLS recovery landing inside a dense
+window still overruns a 60 s cadence. The change buys slack — roughly 33 s instead of
+13 s — not a guarantee.
+
+**Retroactive effect, and a decision not to benefit from it.** `WINDOWS` is also what
+`gap_report` uses to decide which gaps are dense, so this reclassifies history. The
+16:33–17:07 UTC period that Amendment 1 excluded for containing 4 CRITICAL gaps now
+measures **0 CRITICAL**, because those holes fell in the T-24h ±1h region that is no
+longer dense.
+
+**The window start is not moved back to 16:33 UTC.** The exclusion stands on the
+definition in force when it was made; the period genuinely had degraded collection
+(72.8% dense capture against 99.1% since); and reversing an exclusion so as to *add*
+data, after changing the measurement that justified it, is the precise manoeuvre this
+document exists to prevent. Exclusions may be tightened by a definition change. They are
+not loosened by one.
+
+**Consequence for reporting.** G0 results computed before and after this change are not
+comparable, and any G0 claim must name the cadence definition in force when it was
+measured. Current status, measured under the new definition: window open since
+2026-09-03 17:07:40 UTC, **0 CRITICAL, 6 MISSED (sparse only), 99.1% dense capture.**

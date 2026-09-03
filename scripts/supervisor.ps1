@@ -28,8 +28,12 @@ param(
     [Parameter(ParameterSetName = 'Install')][switch]$Install,
     [Parameter(ParameterSetName = 'Uninstall')][switch]$Uninstall,
     [Parameter(ParameterSetName = 'Status')][switch]$Status,
+    # Deliberately not a ValidateSet. One was here listing 'snapshot','emit', and adding
+    # the gefs task to $Tasks without updating it made every pmv-gefs run fail parameter
+    # binding -- exit 1, before any log existed, so the only symptom was a task result of
+    # 1 and an empty logs directory. The job list has one home now: $Tasks.
     [Parameter(ParameterSetName = 'Run', Mandatory = $true)]
-    [ValidateSet('snapshot', 'emit')][string]$Run
+    [string]$Run
 )
 
 $ErrorActionPreference = 'Stop'
@@ -79,14 +83,31 @@ function Invoke-Job {
 
     if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
     $log = Join-Path $LogDir ("{0}-{1:yyyyMMdd}.log" -f $JobName, (Get-Date))
+
+    # The log is opened before anything can fail. A job that dies during setup used to
+    # leave no file at all, so a broken collector and a collector that had simply never
+    # been due looked identical from the logs directory.
+    "=== $JobName started $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" |
+        Out-File $log -Append -Encoding utf8
+
+    if (-not $Tasks.ContainsKey($JobName)) {
+        "FATAL: unknown job '$JobName'. Known: $($Tasks.Keys -join ', ')" |
+            Out-File $log -Append -Encoding utf8
+        exit 2
+    }
     $spec = $Tasks[$JobName]
 
-    Set-Location $RepoRoot
-    "=== $JobName started $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File $log -Append -Encoding utf8
-    # Redirection is done by cmd rather than PowerShell: 5.1 wraps a native
-    # command's stderr in ErrorRecords when redirected, which corrupts the log.
-    & cmd.exe /c "`"$PythonExe`" $($spec.Arguments) >> `"$log`" 2>&1"
-    exit $LASTEXITCODE
+    try {
+        Set-Location $RepoRoot
+        # Redirection is done by cmd rather than PowerShell: 5.1 wraps a native
+        # command's stderr in ErrorRecords when redirected, which corrupts the log.
+        & cmd.exe /c "`"$PythonExe`" $($spec.Arguments) >> `"$log`" 2>&1"
+        exit $LASTEXITCODE
+    }
+    catch {
+        "FATAL: $($_.Exception.Message)" | Out-File $log -Append -Encoding utf8
+        exit 3
+    }
 }
 
 function Install-Tasks {
@@ -152,11 +173,21 @@ function Show-Status {
         if ($null -eq $task) { Write-Host "$name : NOT REGISTERED"; continue }
 
         $info = Get-ScheduledTaskInfo -TaskName $name
-        Write-Host "$name : $($task.State)  last=$($info.LastRunTime)  result=$($info.LastTaskResult)  next=$($info.NextRunTime)"
+
+        # 0x41301 "currently running" and 0x41303 "has not yet run" are states, not
+        # faults. Anything else is a job that ran and failed, which is worth naming
+        # loudly: pmv-gefs sat at result=1 for hours and the only other symptom was a
+        # log file that did not exist.
+        $rc = $info.LastTaskResult
+        $verdict = if ($rc -eq 0 -or $rc -eq 267009 -or $rc -eq 267011) { "" } else { "   <-- FAILING" }
+        Write-Host "$name : $($task.State)  last=$($info.LastRunTime)  result=$rc  next=$($info.NextRunTime)$verdict"
 
         $log = Join-Path $LogDir ("{0}-{1:yyyyMMdd}.log" -f $jobName, (Get-Date))
         if (Test-Path $log) {
             Get-Content $log -Tail 3 | ForEach-Object { Write-Host "    $_" }
+        }
+        else {
+            Write-Host "    (no log today at $log)"
         }
     }
 }

@@ -212,7 +212,7 @@ def test_a_sparse_step_does_not_step_over_a_dense_window(tmp_path: Path) -> None
     never called it — a fully-tested function that production never reached."""
     src = FakeSource([_market()])
     runner = SnapshotRunner(src, tmp_path)
-    opening = CLOSE - timedelta(hours=25)  # the T-24h window opens here
+    opening = CLOSE - timedelta(hours=24, minutes=15)  # the T-24h window opens here
     runner.poll(src.markets, now=opening - timedelta(minutes=29))
     assert runner.poll(src.markets, now=opening) != [], "must sample at the window opening"
 

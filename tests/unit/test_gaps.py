@@ -103,7 +103,7 @@ def test_leaving_a_dense_window_is_not_a_critical_gap() -> None:
 
 def test_entering_a_dense_window_late_is_still_critical() -> None:
     """The mirror case must keep firing: a hole that runs well into a window."""
-    gap = classify("A", at(hours=25, minutes=20), at(hours=24, minutes=30), CLOSE)
+    gap = classify("A", at(hours=24, minutes=35), at(hours=24, minutes=5), CLOSE)
     assert gap is not None and gap.severity == "CRITICAL"
 
 
