@@ -44,6 +44,11 @@ $ThisScript = $PSCommandPath
 # often enough to catch a horizon inside its tolerance window.
 $SnapshotIntervalMin = 15
 $EmitIntervalMin     = 4
+# GEFS publishes four runs a day, so hourly is already far finer than the data
+# changes. The reason to fetch this often is point-in-time granularity: a prediction
+# uses the newest forecast that existed before it, and hourly bounds how stale that
+# can be.
+$GefsIntervalMin     = 60
 
 $Tasks = @{
     snapshot = @{
@@ -59,6 +64,13 @@ $Tasks = @{
         Arguments   = '-m scripts.emit_baselines'
         IntervalMin = $EmitIntervalMin
         TimeLimit   = (New-TimeSpan -Hours 1)
+    }
+    gefs = @{
+        Name        = 'pmv-gefs'
+        Description = 'Prediction market validation: GEFS ensemble feed (cannot be backfilled)'
+        Arguments   = '-m scripts.fetch_gefs'
+        IntervalMin = $GefsIntervalMin
+        TimeLimit   = (New-TimeSpan -Minutes 30)
     }
 }
 

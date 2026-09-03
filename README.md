@@ -33,6 +33,39 @@ reach a tracked market: ~5,000 combo shards settle a day and they fill every
 page of the listing. `--catalogue` inverts it — one request per market we
 actually recorded, driven from the catalogue. Use it.
 
+## Weather features (GEFS)
+
+```bash
+uv run python -m scripts.fetch_gefs                 # all 19 stations
+uv run python -m scripts.fetch_gefs --stations CLIMDW,CLINYC
+```
+
+The Climate and Weather universe is almost entirely daily max/min temperature at 19 US
+stations, and Kalshi gives the strike structurally — `strike_type` with
+`floor_strike`/`cap_strike` — so nothing parses the question text.
+
+Which station matters more than it looks. `rules_primary` names it by NWS CLI code, and
+three are not the airport you would guess: **`CLIMDW` is Chicago Midway, not O'Hare;
+`CLIHOU` is Houston Hobby, not Bush; `CLINYC` is Central Park.** Forecasting the wrong
+one still returns a number, and the error is a few degrees — the entire width of a
+Kalshi temperature bucket.
+
+The feed is the 31-member GEFS ensemble as JSON, not GRIB2 from NOMADS. That buys a
+working Windows toolchain at the cost of the run's init time, which the endpoint does
+not report. **Point-in-time is therefore guaranteed by the clock, not the payload**:
+`fetched_at` is trustworthy only because the row was written live, so like
+`emit_baselines` this cannot be backfilled. `latest_ensemble_before()` is where the
+guarantee is enforced.
+
+Rows land in `gefs_ensemble`, keyed `(station, target_date, fetched_at)` — the grain
+the forecast actually has. A six-rung ladder shares one forecast, so storing per market
+would make the row count a lie about how much independent information exists. The table
+is append-only by trigger, and refuses a `fetched_at` in the future.
+
+Note `is_pure_forecast`: false once the target day has begun locally, because the daily
+max may then be partly observed. Legitimate information at `fetched_at`, but not a
+forecast, and the distinction decides what belongs in a T-24h study.
+
 ## Running unattended
 
 The collectors above are foreground jobs. When the shell that started them goes
@@ -45,10 +78,10 @@ powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1 -Status
 powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1 -Uninstall
 ```
 
-`pmv-snapshot` re-fires every 15 minutes and `pmv-emit` every 4, both with
-`MultipleInstances=IgnoreNew`: a tick on a live job is discarded, a tick on a
-dead one restarts it. That is the whole restart mechanism — no failure detection
-to get wrong. Logs land in `logs/<job>-<date>.log`.
+`pmv-snapshot` re-fires every 15 minutes, `pmv-emit` every 4 and `pmv-gefs` every 60,
+all with `MultipleInstances=IgnoreNew`: a tick on a live job is discarded, a tick on a
+dead one restarts it. That is the whole restart mechanism — no failure detection to get
+wrong. Logs land in `logs/<job>-<date>.log`.
 
 Tasks run as the current user at logon, so **collection still stops if the
 machine sleeps or you log out**. Running with no user logged on needs stored

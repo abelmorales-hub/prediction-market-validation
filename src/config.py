@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     http_timeout_s: float = 10.0
     data_dir: Path = Path("data")
 
+    # GEFS ensemble, served as JSON. Unset means the weather feature job is skipped
+    # rather than silently guessing a host. See src/ingest/gefs.py for why the run's
+    # init time is not recoverable from the payload and fetched_at is the guarantee.
+    gefs_base_url: str | None = None
+    gefs_model: str = "gfs025"
+    gefs_forecast_days: int = 4
+
     # Postgres for the small relational state only. Book snapshots go to Parquet.
     supabase_db_url: str | None = None
 

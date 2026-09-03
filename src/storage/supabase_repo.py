@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +150,57 @@ class Repo:
                 (r.market_id, r.resolved_at, r.outcome, was_disputed, notes),
             )
         self.conn.commit()
+
+    # -- weather ----------------------------------------------------------
+
+    def insert_ensemble(self, payload: dict[str, Any]) -> bool:
+        """Record one point-in-time ensemble. False if this exact fetch is already
+        stored, which happens when a run is retried, not when a forecast is updated:
+        a later fetch has a later `fetched_at` and is a new row by design."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into gefs_ensemble (station, target_date, fetched_at, model,
+                                           is_pure_forecast, members, tmax_f, tmin_f, grid)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                on conflict (station, target_date, fetched_at) do nothing
+                """,
+                (
+                    payload["station"],
+                    payload["target_date"],
+                    payload["fetched_at"],
+                    payload["model"],
+                    payload["is_pure_forecast"],
+                    payload["members"],
+                    payload["tmax_f"],
+                    payload["tmin_f"],
+                    json.dumps(payload["grid"]),
+                ),
+            )
+            written = cur.rowcount == 1
+        self.conn.commit()
+        return written
+
+    def latest_ensemble_before(
+        self, station: str, target_date: date, before: datetime
+    ) -> dict[str, Any] | None:
+        """The most recent forecast that existed at `before`.
+
+        The whole point-in-time guarantee lives in this WHERE clause: a forecast issued
+        after the prediction it feeds is a look-ahead leak, and it would still return a
+        plausible number.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                select * from gefs_ensemble
+                where station = %s and target_date = %s and fetched_at < %s
+                order by fetched_at desc limit 1
+                """,
+                (station, target_date, before),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
 
     # -- features ---------------------------------------------------------
 
