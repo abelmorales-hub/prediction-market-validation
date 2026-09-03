@@ -95,8 +95,13 @@ function Install-Tasks {
     foreach ($jobName in $Tasks.Keys) {
         $spec = $Tasks[$jobName]
 
+        # -WindowStyle Hidden matters beyond cosmetics: without it the job attaches to
+        # whatever console started it and dies with STATUS_CONTROL_C_EXIT when that
+        # shell exits. Observed 2026-09-03 -- the snapshotter was killed seconds after
+        # a manual Start-ScheduledTask from a short-lived shell, logging nothing.
         $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-            -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$ThisScript`" -Run $jobName" `
+            -Argument ("-NoProfile -NonInteractive -WindowStyle Hidden " +
+                       "-ExecutionPolicy Bypass -File `"$ThisScript`" -Run $jobName") `
             -WorkingDirectory $RepoRoot
 
         # A repeating trigger from a start time in the past fires immediately and
@@ -124,6 +129,8 @@ function Install-Tasks {
     Write-Host ""
     Write-Host "Logs: $LogDir\<job>-<date>.log"
     Write-Host "Collection stops if this machine sleeps or the user logs out."
+    Write-Host "NOTE: -Force re-registration stops a running job. Each task's next tick"
+    Write-Host "      restarts it, so re-installing mid-window costs up to one interval."
 }
 
 function Uninstall-Tasks {
