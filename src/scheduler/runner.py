@@ -85,6 +85,35 @@ class SnapshotRunner:
             log.info("resumed with %d markets already recorded", len(self._last))
 
     @staticmethod
+    def retain(
+        previous: Sequence[Market], fresh: Sequence[Market], now: datetime
+    ) -> list[Market]:
+        """Keep tracking anything already admitted until it closes.
+
+        `universe()` re-ranks every open market by volume and keeps the top N. Without
+        this, a market that slips to rank N+1 is dropped the instant it does — including
+        one minutes away from its T-24h horizon with a partial series already recorded.
+        Observed 2026-09-03: KXWTI-26SEP0414-T97.49 was sampled at 19:39 and 20:09, fell
+        out of the ranking, and returned at 22:07, having skipped the whole dense window
+        around its 20:30 horizon.
+
+        That failure is silent in the way that matters. The market keeps a plausible
+        series, missing only the instant the scorer needs, so the prediction is never
+        emitted and nothing anywhere reports an error.
+
+        Admission stays a research decision — `min_volume` and `max_markets` still
+        choose what enters. Retention is not: dropping a market mid-life discards work
+        already done and cannot be undone later, so it is always wrong.
+
+        Closed markets are dropped here rather than left to accumulate; the cadence
+        would never schedule them again, but they would still be swept and sorted.
+        """
+        merged = {m.market_id: m for m in previous if m.close_time > now}
+        # Fresh metadata wins on conflict: volume and the touch move, close_time does not.
+        merged.update({m.market_id: m for m in fresh if m.close_time > now})
+        return list(merged.values())
+
+    @staticmethod
     def _by_urgency(markets: Sequence[Market], now: datetime) -> list[Market]:
         """Dense-window markets first, then soonest to close.
 
@@ -221,7 +250,17 @@ class SnapshotRunner:
             # point of the exercise is that missing data is not recoverable later.
             if tick % refresh_every == 0:
                 try:
-                    markets = self.universe(closing_within_s)
+                    fresh = self.universe(closing_within_s)
+                    markets = self.retain(markets, fresh, datetime.now(UTC))
+                    fresh_ids = {m.market_id for m in fresh}
+                    held = sum(1 for m in markets if m.market_id not in fresh_ids)
+                    if held:
+                        log.info(
+                            "retained %d market(s) that fell out of the ranking "
+                            "(tracking %d)",
+                            held,
+                            len(markets),
+                        )
                 except Exception as exc:  # noqa: BLE001
                     self.stats.failures[f"universe:{type(exc).__name__}"] += 1
                     log.warning(

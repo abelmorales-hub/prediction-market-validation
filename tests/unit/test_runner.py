@@ -282,3 +282,55 @@ def test_a_sweep_failure_still_flushes_and_continues(tmp_path: Path) -> None:
     stats = runner.run_forever(tick_s=1, max_ticks=2, sleep=lambda _: None)
     assert stats.failures["sweep:RuntimeError"] == 1
     assert calls["n"] == 2, "the loop kept going after the failed sweep"
+
+
+# ---------------------------------------------------------------- universe retention
+
+
+def test_a_market_that_falls_out_of_the_ranking_is_still_tracked(tmp_path: Path) -> None:
+    """The bug this fixes, reproduced.
+
+    KXWTI-26SEP0414-T97.49 was sampled at 19:39 and 20:09 on 2026-09-03, slipped below
+    rank max_markets, and was not seen again until 22:07 — skipping the whole dense
+    window around its 20:30 horizon. Nothing errored; the market simply kept a series
+    with the one instant the scorer needs missing from it.
+    """
+    now = CLOSE - timedelta(hours=25)
+    tracked = _market("SLIPPY", volume=5000.0)
+    runner = SnapshotRunner(FakeSource([tracked]), tmp_path)
+
+    # Next refresh ranks it out entirely: `fresh` no longer contains it.
+    retained = runner.retain([tracked], [_market("POPULAR", volume=90000.0)], now)
+
+    assert {m.market_id for m in retained} == {"SLIPPY", "POPULAR"}
+
+
+def test_retention_drops_markets_that_have_closed(tmp_path: Path) -> None:
+    """Held markets must not accumulate forever. The cadence would never schedule a
+    closed one again, but it would still be swept and sorted on every tick."""
+    now = CLOSE + timedelta(minutes=1)
+    runner = SnapshotRunner(FakeSource([]), tmp_path)
+    retained = runner.retain([_market("DONE", close=CLOSE)], [], now)
+    assert retained == []
+
+
+def test_fresh_metadata_wins_over_the_retained_copy(tmp_path: Path) -> None:
+    """Volume and the touch move between refreshes; the stale copy must not shadow
+    them just because the market was admitted earlier."""
+    now = CLOSE - timedelta(hours=25)
+    runner = SnapshotRunner(FakeSource([]), tmp_path)
+    retained = runner.retain(
+        [_market("A-1", volume=1000.0)], [_market("A-1", volume=7777.0)], now
+    )
+    assert len(retained) == 1
+    assert retained[0].volume == 7777.0
+
+
+def test_retention_survives_a_market_dropping_out_across_refreshes(tmp_path: Path) -> None:
+    """Two consecutive refreshes without it: still tracked, because retention is applied
+    to the retained set, not only to the most recent ranking."""
+    now = CLOSE - timedelta(hours=25)
+    runner = SnapshotRunner(FakeSource([]), tmp_path)
+    first = runner.retain([_market("SLIPPY")], [_market("OTHER")], now)
+    second = runner.retain(first, [_market("OTHER")], now)
+    assert "SLIPPY" in {m.market_id for m in second}
