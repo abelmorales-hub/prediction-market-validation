@@ -284,3 +284,59 @@ not loosened by one.
 comparable, and any G0 claim must name the cadence definition in force when it was
 measured. Current status, measured under the new definition: window open since
 2026-09-03 17:07:40 UTC, **0 CRITICAL, 6 MISSED (sparse only), 99.1% dense capture.**
+
+### Amendment 3 — 2026-09-03, daily collection band; G0 and the universe restricted
+
+**This is the largest change to the study so far. It narrows what can be claimed.**
+
+**Why.** The collector runs on a desktop that will not be left on for fourteen
+consecutive days. G0 as written — no gap over fifteen minutes, continuously — is
+therefore unachievable, and a criterion nobody can meet is not a criterion, it is an
+excuse to ignore the gate.
+
+**The band.** Collection runs **05:30–11:00 Europe/Madrid, daily**, and the machine is
+woken from sleep for it. This is not an arbitrary convenience window. Every Kalshi daily
+temperature market closes just after midnight US local, so its T-24h horizon lands at
+~01:00 US local, which is 07:00–10:00 in Madrid across the four US timezones:
+
+| horizon, Madrid | US local | cities |
+|---|---|---|
+| 07:00 | 01:00 EDT | Miami, New York, Philadelphia, Atlanta, Boston, Washington DC |
+| 08:00 | 01:00 CDT | Chicago, Austin, Dallas, Houston, Minneapolis, Oklahoma City, San Antonio |
+| 09:00 | 00:00 MST/01:00 MDT | Denver, Phoenix |
+| 10:00 | 01:00 PDT | Los Angeles, Las Vegas, Seattle, San Francisco |
+
+A 05:30–11:00 band brackets **188 of 189** observed weather horizons, with margin for
+the dense window opening fifteen minutes ahead of each.
+
+**The band width is a research parameter, not a convenience.** Shrinking it does not
+thin the sample evenly, it deletes whole timezones: an 08:00 start loses every East
+Coast city, a 09:00 start loses the Central states too. For a study about forecasting
+weather, biasing the sample by climate region is close to the worst available bias. The
+band must not be narrowed for convenience.
+
+**G0 is redefined.** From "no gap over fifteen minutes for fourteen consecutive days" to
+**"no CRITICAL gap inside the collection band, for fourteen consecutive days."**
+Implemented as `gap_report --band 05:30-11:00 --tz Europe/Madrid`, which measures dense
+and sparse coverage only over in-band minutes. Being switched off outside the band is a
+declared scope limit; a hole *inside* it is still a missed horizon and still voids the
+window. Stopping early — last sample at 09:00 with the band open until 11:00 — is a
+fault, not a scope limit, and is reported as one.
+
+**The universe is now conditional**: markets whose T-24h horizon falls inside the band.
+This is selection on close time, a market attribute fixed before listing and independent
+of any outcome, so it does not bias the comparison between a forecast and the market
+price at the same instant. It does restrict *what population the result generalises to*,
+and that restriction must appear in any statement of a result.
+
+**What is given up.** Non-weather categories are largely abandoned: 413 of the 914
+tracked markets have T-24h horizons clustered at 23:00 Madrid, entirely outside the
+band, and they will no longer be sampled at their horizon. The study becomes, in
+practice, a weather study — which is where the pre-declared category and H2 already
+were, but the option of a second category has now been spent rather than merely unused.
+
+**Operational limits, stated because they will be the cause of the next gap.** Wake-to-
+run resumes from sleep, not from a full shutdown; a machine powered off overnight needs
+BIOS wake-on-RTC instead, and nothing in the pipeline can detect the difference. The
+snapshotter holds a Windows execution-state lock while it runs, which prevents idle
+sleep but cannot prevent a lid close, a manual sleep, or a shutdown.

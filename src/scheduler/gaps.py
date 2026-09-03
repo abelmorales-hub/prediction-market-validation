@@ -15,7 +15,8 @@ G0 in the design doc ("no gaps >15 min") is the CRITICAL count. It must be zero.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from src.scheduler.cadence import DENSE, SPARSE, WINDOWS, in_dense_window
 
@@ -47,6 +48,8 @@ def classify(
     end: datetime,
     close_time: datetime,
     tolerance: float = TOLERANCE,
+    band: tuple[time, time] | None = None,
+    tz: ZoneInfo | None = None,
 ) -> Gap | None:
     """One interval between consecutive snapshots. None when it is within cadence.
 
@@ -56,46 +59,108 @@ def classify(
     30-minute cadence correctly resumes — as a missed horizon. That single confusion
     produced 104 of the 273 CRITICAL gaps in the first overnight run, all of them the
     scheduler behaving exactly as designed.
+
+    With a `band`, only dense time *inside the daily collection window* counts. The
+    collector is deliberately off outside it, so a horizon that falls at 03:00 local was
+    never going to be sampled and its absence is a scope limit, not a fault. The
+    overnight hole between one band closing and the next opening therefore scores zero
+    in-band dense minutes and is silent — while a hole at 08:00, when the machine was
+    supposed to be collecting, still fires.
     """
-    unsampled_dense = _dense_span(start, end, close_time)
+    unsampled_dense = _dense_span(start, end, close_time, band, tz)
     if unsampled_dense > DENSE * tolerance:
         return Gap(market_id, start, end, DENSE, "CRITICAL")
-    if (end - start) > SPARSE * tolerance:
+    # Sparse coverage is judged on in-band minutes for the same reason as dense: the
+    # eighteen hours between one band closing and the next opening are not a hole, they
+    # are the machine being off. Measuring the raw duration here would report every
+    # single overnight boundary, for every market, forever.
+    unsampled = (
+        end - start if band is None else _in_band_span(start, end, band, tz or ZoneInfo("UTC"))
+    )
+    if unsampled > SPARSE * tolerance:
         return Gap(market_id, start, end, SPARSE, "MISSED")
     return None
 
 
-def _dense_span(start: datetime, end: datetime, close_time: datetime) -> timedelta:
+def _dense_span(
+    start: datetime,
+    end: datetime,
+    close_time: datetime,
+    band: tuple[time, time] | None = None,
+    tz: ZoneInfo | None = None,
+) -> timedelta:
     """How much of the open interval (start, end) fell inside a dense window.
 
     Measured, not probed. The windows are fixed offsets from the close and provably
-    disjoint, so overlaps can simply be summed.
+    disjoint, so overlaps can simply be summed. With a band, each overlap is further
+    intersected with the daily collection window: dense minutes nobody was ever going to
+    sample do not count against coverage.
     """
     total = timedelta(0)
     for centre, half in WINDOWS:
         w_start = close_time - (centre + half)
         # A market stops being sampled at the close, so no window extends past it.
         w_end = min(close_time - (centre - half), close_time)
-        overlap = min(end, w_end) - max(start, w_start)
+        lo, hi = max(start, w_start), min(end, w_end)
+        if hi <= lo:
+            continue
+        total += hi - lo if band is None else _in_band_span(lo, hi, band, tz or ZoneInfo("UTC"))
+    return total
+
+
+def _in_band_span(
+    start: datetime, end: datetime, band: tuple[time, time], tz: ZoneInfo
+) -> timedelta:
+    """How much of (start, end) lies inside the daily band, summed over the days it spans.
+
+    Walked day by day in local time rather than computed arithmetically, because a band
+    is a wall-clock concept: across a DST change the same 05:30-11:00 is a different
+    number of absolute hours, and the horizons it exists to cover move with the clock,
+    not with UTC.
+    """
+    if end <= start:
+        return timedelta(0)
+    band_start, band_end = band
+    total = timedelta(0)
+    day = start.astimezone(tz).date()
+    last = end.astimezone(tz).date()
+    while day <= last:
+        lo = datetime.combine(day, band_start, tzinfo=tz)
+        hi = datetime.combine(day, band_end, tzinfo=tz)
+        if band_start > band_end:  # band crosses midnight
+            hi += timedelta(days=1)
+        overlap = min(end, hi) - max(start, lo)
         if overlap > timedelta(0):
             total += overlap
+        day += timedelta(days=1)
     return total
 
 
 def find_gaps(
-    rows: list[tuple[str, datetime, datetime]], tolerance: float = TOLERANCE
+    rows: list[tuple[str, datetime, datetime]],
+    tolerance: float = TOLERANCE,
+    band: tuple[time, time] | None = None,
+    tz: ZoneInfo | None = None,
 ) -> list[Gap]:
     """`rows` is (market_id, ts, close_time), any order. Compares consecutive snapshots
-    within each market only: two different markets an hour apart is not a gap."""
+    within each market only: two different markets an hour apart is not a gap.
+
+    With `band`, a gap is only reported if it *starts* inside the daily collection
+    window. The overnight hole between one band closing and the next opening is then
+    expected rather than a fault -- see `in_band`. A gap that starts inside the band
+    still counts however far past its end it runs, because the sample that should have
+    been taken during the band is missing either way.
+    """
     by_market: dict[str, list[tuple[datetime, datetime]]] = {}
     for market_id, ts, close_time in rows:
         by_market.setdefault(market_id, []).append((ts, close_time))
 
+    zone = tz or ZoneInfo("UTC")
     gaps = []
     for market_id, points in by_market.items():
         points.sort()
         for (start, close_time), (end, _) in zip(points, points[1:], strict=False):
-            gap = classify(market_id, start, end, close_time, tolerance)
+            gap = classify(market_id, start, end, close_time, tolerance, band, zone)
             if gap is not None:
                 gaps.append(gap)
     return sorted(gaps, key=lambda g: g.duration, reverse=True)
@@ -122,6 +187,34 @@ def coverage(rows: list[tuple[str, datetime, datetime]]) -> dict[str, float]:
         "dense_markets": float(len({m for m, _ in spans})),
         "capture_rate": len(dense) / expected if expected else 1.0,
     }
+
+
+def in_band(ts: datetime, band: tuple[time, time], tz: ZoneInfo) -> bool:
+    """Whether an instant falls inside the daily collection band, in local time.
+
+    G0 as the design doc states it -- no gap over 15 minutes, for fourteen days --
+    assumes a collector that never stops. This one stops: the machine it runs on is not
+    on overnight, so the band is when data is expected to exist at all. A hole outside
+    it is not a fault, and counting it as one makes the gate permanently red and
+    therefore useless.
+
+    What this does *not* excuse is a hole inside the band. That is still a missed
+    horizon, and still voids the window.
+    """
+    local = ts.astimezone(tz).timetz()
+    start, end = band
+    if start <= end:
+        return start <= local.replace(tzinfo=None) <= end
+    # A band crossing midnight is two intervals, not one.
+    return local.replace(tzinfo=None) >= start or local.replace(tzinfo=None) <= end
+
+
+def parse_band(text: str) -> tuple[time, time]:
+    """`HH:MM-HH:MM` in local time."""
+    start, _, end = text.partition("-")
+    if not end:
+        raise ValueError("band must look like 05:30-11:00")
+    return time.fromisoformat(start.strip()), time.fromisoformat(end.strip())
 
 
 def parse_since(text: str) -> datetime:

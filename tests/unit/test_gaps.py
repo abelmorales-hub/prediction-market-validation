@@ -5,11 +5,19 @@ The trap this guards against: applying ">15 min" literally flags every ordinary
 one gap that matters — a hole across a prediction horizon — is invisible in the noise.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.scheduler.gaps import classify, coverage, find_gaps, parse_since
+from src.scheduler.gaps import (
+    classify,
+    coverage,
+    find_gaps,
+    in_band,
+    parse_band,
+    parse_since,
+)
 
 CLOSE = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
@@ -161,3 +169,64 @@ def test_z_suffix_parses() -> None:
 def test_a_non_instant_raises_rather_than_defaulting() -> None:
     with pytest.raises(ValueError):
         parse_since("last tuesday")
+
+
+# ---------------------------------------------------------------- collection band
+
+
+MADRID = ZoneInfo("Europe/Madrid")
+BAND = (time(5, 30), time(11, 0))
+
+
+def test_instants_inside_and_outside_the_band() -> None:
+    assert in_band(datetime(2026, 9, 4, 6, 0, tzinfo=MADRID), BAND, MADRID)
+    assert in_band(datetime(2026, 9, 4, 10, 59, tzinfo=MADRID), BAND, MADRID)
+    assert not in_band(datetime(2026, 9, 4, 3, 0, tzinfo=MADRID), BAND, MADRID)
+    assert not in_band(datetime(2026, 9, 4, 23, 0, tzinfo=MADRID), BAND, MADRID)
+
+
+def test_the_band_is_evaluated_in_local_time_not_utc() -> None:
+    """07:00 Madrid is 05:00 UTC. Judged in UTC it would fall outside a 05:30 start,
+    and every East Coast horizon would be discarded as out-of-band."""
+    seven_local = datetime(2026, 9, 4, 5, 0, tzinfo=UTC)  # 07:00 CEST
+    assert in_band(seven_local, BAND, MADRID)
+
+
+def test_the_overnight_hole_is_not_counted_as_a_gap() -> None:
+    """The collector is not running overnight by design. Counting that as a fault makes
+    the gate permanently red, and a gate nobody can pass is a gate nobody reads."""
+    close = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    last_of_band = datetime(2026, 9, 4, 10, 58, tzinfo=MADRID)  # band closes at 11:00
+    first_of_next = datetime(2026, 9, 5, 5, 32, tzinfo=MADRID)  # band reopens at 05:30
+    rows = [("A", last_of_band, close), ("A", first_of_next, close)]
+    assert find_gaps(rows, band=BAND, tz=MADRID) == []
+    assert find_gaps(rows) != [], "without a band the same 18 hours is reported"
+
+
+def test_stopping_early_inside_the_band_is_still_reported() -> None:
+    """The band excuses the hours the collector is off by design, not an early finish.
+    Last sample at 09:00 with the band open until 11:00 is two hours that should have
+    been collected."""
+    close = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    rows = [
+        ("A", datetime(2026, 9, 4, 9, 0, tzinfo=MADRID), close),
+        ("A", datetime(2026, 9, 5, 5, 32, tzinfo=MADRID), close),
+    ]
+    assert find_gaps(rows, band=BAND, tz=MADRID) != []
+
+
+def test_a_hole_inside_the_band_is_still_a_gap() -> None:
+    """The band excuses being switched off, not missing a horizon while switched on."""
+    close = datetime(2026, 9, 5, 8, 0, tzinfo=MADRID)  # T-24h horizon at 08:00 the 4th
+    rows = [
+        ("A", datetime(2026, 9, 4, 7, 40, tzinfo=MADRID), close),
+        ("A", datetime(2026, 9, 4, 8, 20, tzinfo=MADRID), close),
+    ]
+    gaps = find_gaps(rows, band=BAND, tz=MADRID)
+    assert gaps and gaps[0].severity == "CRITICAL"
+
+
+def test_parse_band_round_trip() -> None:
+    assert parse_band("05:30-11:00") == (time(5, 30), time(11, 0))
+    with pytest.raises(ValueError):
+        parse_band("05:30")

@@ -46,6 +46,20 @@ $ThisScript = $PSCommandPath
 # The snapshotter holds one pooled connection and sweeps continuously, so a tick
 # only ever needs to notice that it died. The emitter is single-pass and must run
 # often enough to catch a horizon inside its tolerance window.
+# The daily collection band, in local time. Every Kalshi daily temperature market
+# closes just after midnight US local, so its T-24h horizon lands at ~01:00 US local --
+# 07:00 to 10:00 in Spain across the four US timezones. A 05:30-11:00 band brackets all
+# of them with margin (the dense window opens 15 min before each horizon) and covers
+# 188 of 189 observed weather horizons.
+#
+# Shrinking it does not thin the sample evenly, it deletes whole timezones: starting at
+# 08:00 loses every East Coast city. For a weather study, biasing by climate region is
+# close to the worst available bias, so the band is a research parameter, not a
+# convenience. It is declared in docs/pre_declaration.md, Amendment 3.
+$BandStart      = '05:30'
+$BandDurationH  = 5.5
+$BandEnd        = ([datetime]$BandStart).AddHours($BandDurationH).ToString('HH:mm')
+
 $SnapshotIntervalMin = 15
 $EmitIntervalMin     = 4
 # GEFS publishes four runs a day, so hourly is already far finer than the data
@@ -58,9 +72,14 @@ $Tasks = @{
     snapshot = @{
         Name        = 'pmv-snapshot'
         Description = 'Prediction market validation: order book snapshotter (restarts if not running)'
-        Arguments   = '-m scripts.snapshot --minutes 0'
+        # --until, not --minutes. Task Scheduler rounds a repetition duration up to whole
+        # hours, so a restart tick can fire after the band should have closed; a
+        # duration-bounded run starting then would collect for another 5.5 hours and hold
+        # the machine awake until late afternoon. An absolute stop ends the band on time
+        # no matter when the instance started.
+        Arguments   = "-m scripts.snapshot --until $BandEnd"
         IntervalMin = $SnapshotIntervalMin
-        TimeLimit   = [TimeSpan]::Zero          # runs forever by design
+        TimeLimit   = (New-TimeSpan -Hours ($BandDurationH + 0.5))
     }
     emit = @{
         Name        = 'pmv-emit'
@@ -74,6 +93,16 @@ $Tasks = @{
         Description = 'Prediction market validation: GEFS ensemble feed (cannot be backfilled)'
         Arguments   = '-m scripts.fetch_gefs'
         IntervalMin = $GefsIntervalMin
+        TimeLimit   = (New-TimeSpan -Minutes 30)
+    }
+    # Outcomes are the one thing here that *can* be backfilled, so this runs once near
+    # the end of the band rather than on a tight interval. Without it the scorer has
+    # nothing to join predictions against, which is how outcomes sat empty for a day.
+    resolutions = @{
+        Name        = 'pmv-resolutions'
+        Description = 'Prediction market validation: settle outcomes for catalogued markets'
+        Arguments   = '-m scripts.watch_resolutions --catalogue'
+        IntervalMin = 240
         TimeLimit   = (New-TimeSpan -Minutes 30)
     }
 }
@@ -125,11 +154,13 @@ function Install-Tasks {
                        "-ExecutionPolicy Bypass -File `"$ThisScript`" -Run $jobName") `
             -WorkingDirectory $RepoRoot
 
-        # A repeating trigger from a start time in the past fires immediately and
-        # then every interval, which is both the starter and the restarter.
-        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(-1) `
-            -RepetitionInterval (New-TimeSpan -Minutes $spec.IntervalMin)
-        $atLogon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+        # Daily at the band opening, repeating within it and stopping at its end. The
+        # repetition is still what restarts a dead job; it just no longer runs around
+        # the clock, because the machine is not on around the clock.
+        $trigger = New-ScheduledTaskTrigger -Daily -At $BandStart
+        $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At $BandStart `
+            -RepetitionInterval (New-TimeSpan -Minutes $spec.IntervalMin) `
+            -RepetitionDuration (New-TimeSpan -Hours $BandDurationH)).Repetition
 
         $settings = New-ScheduledTaskSettingsSet `
             -MultipleInstances IgnoreNew `
@@ -140,16 +171,24 @@ function Install-Tasks {
             -DontStopIfGoingOnBatteries `
             -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5)
 
+        # Wake the machine for the band. This is the whole point: the horizons are at
+        # 07:00-10:00 local and nobody is going to be awake to press a key. It works
+        # from sleep only -- a machine shut down needs BIOS wake-on-RTC instead, and
+        # nothing here can detect the difference, so -Status is what to check.
+        $settings.WakeToRun = $true
+
         Register-ScheduledTask -TaskName $spec.Name -Action $action `
-            -Trigger @($trigger, $atLogon) -Settings $settings `
+            -Trigger $trigger -Settings $settings `
             -Description $spec.Description -Force | Out-Null
 
-        Write-Host "registered $($spec.Name)  (every $($spec.IntervalMin) min, restarts if not running)"
+        Write-Host "registered $($spec.Name)  (every $($spec.IntervalMin) min within the band)"
     }
 
     Write-Host ""
+    Write-Host "Band: $BandStart-$BandEnd local, daily. Wakes the machine from sleep."
     Write-Host "Logs: $LogDir\<job>-<date>.log"
-    Write-Host "Collection stops if this machine sleeps or the user logs out."
+    Write-Host "Wake-to-run works from SLEEP, not from a full shutdown. If you shut the"
+    Write-Host "machine down at night, enable wake-on-RTC in the BIOS or leave it asleep."
     Write-Host "NOTE: -Force re-registration stops a running job. Each task's next tick"
     Write-Host "      restarts it, so re-installing mid-window costs up to one interval."
 }

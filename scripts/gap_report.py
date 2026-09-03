@@ -11,9 +11,10 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from src.config import get_settings
-from src.scheduler.gaps import coverage, find_gaps, parse_since
+from src.scheduler.gaps import coverage, find_gaps, parse_band, parse_since
 from src.storage.duckdb_views import connect
 
 
@@ -26,6 +27,12 @@ def main() -> int:
     )
     ap.add_argument("--tolerance", type=float, default=2.5, help="multiple of cadence")
     ap.add_argument("--limit", type=int, default=20, help="rows to print")
+    ap.add_argument(
+        "--band",
+        help="daily collection window in local time, e.g. 05:30-11:00. Gaps starting "
+        "outside it are not counted: the collector is not running then, by design.",
+    )
+    ap.add_argument("--tz", default="Europe/Madrid", help="timezone the band is expressed in")
     args = ap.parse_args()
 
     # A rolling --days window cannot answer the question the pre-declaration asks. That
@@ -54,7 +61,8 @@ def main() -> int:
         [since.isoformat()],
     ).fetchall()
 
-    print(f"GAP REPORT  {label}  tolerance {args.tolerance}x cadence")
+    band_note = f"  band {args.band} {args.tz}" if args.band else ""
+    print(f"GAP REPORT  {label}  tolerance {args.tolerance}x cadence{band_note}")
     print(f"snapshots: {len(rows)}  markets: {len({r[0] for r in rows})}\n")
     if not rows:
         print("No snapshots in range. Nothing to check.")
@@ -68,7 +76,15 @@ def main() -> int:
         f"(capture rate {stats.get('capture_rate', 1.0):.1%})\n"
     )
 
-    gaps = find_gaps(typed, tolerance=args.tolerance)
+    band = None
+    if args.band:
+        try:
+            band = parse_band(args.band)
+        except ValueError as exc:
+            print(f"--band: {exc}", file=sys.stderr)
+            return 2
+
+    gaps = find_gaps(typed, tolerance=args.tolerance, band=band, tz=ZoneInfo(args.tz))
     critical = [g for g in gaps if g.severity == "CRITICAL"]
     missed = [g for g in gaps if g.severity == "MISSED"]
 
