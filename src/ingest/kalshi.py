@@ -181,6 +181,26 @@ class KalshiSource:
         )
         return [_to_price_point(c) for c in body.get("candlesticks", [])]
 
+    def get_resolution(self, market_id: str) -> Resolution | None:
+        """Settlement for one known ticker, or None if it has not settled.
+
+        The venue-wide scan below cannot reach a specific market: ~5k combo shards settle
+        per day and they fill every page of `?status=settled` in natural order. Asking
+        about the markets we catalogued inverts the query — one request each, no
+        pagination, no shard flood.
+        """
+        body = self._http.get_json(f"/markets/{market_id}")
+        m = KalshiMarket.model_validate(body["market"])
+        outcome = SETTLED_RESULTS.get(m.result.lower())
+        if outcome is None:
+            return None  # still open, void, or unrecognised: never guessed into a 0 or 1
+        return Resolution(
+            market_id=m.ticker,
+            resolved_at=_settled_at(m, datetime.now(UTC)),
+            outcome=outcome,
+            raw_result=m.result,
+        )
+
     def list_recently_resolved(self, since: datetime) -> list[Resolution]:
         rows = self._paged(
             {"limit": 200, "status": "settled", "min_close_ts": int(since.timestamp())}

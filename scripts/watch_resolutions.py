@@ -22,6 +22,11 @@ from src.storage.supabase_repo import Repo, connect
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--hours", type=int, default=24, help="look back this far")
+    ap.add_argument(
+        "--catalogue",
+        action="store_true",
+        help="ask the venue about our own closed markets, instead of scanning what it settled",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
@@ -37,7 +42,10 @@ def main() -> int:
         KalshiSource(cfg.kalshi_base_url, cfg.http_timeout_s, cache_dir=cfg.cache_dir) as source,
         connect(cfg.supabase_db_url) as conn,
     ):
-        stats = ResolutionWatcher(source, Repo(conn)).poll(since)
+        watcher = ResolutionWatcher(source, Repo(conn))
+        stats = (
+            watcher.poll_catalogue(datetime.now(UTC)) if args.catalogue else watcher.poll(since)
+        )
 
     print("  ".join(f"{k}={v}" for k, v in stats.as_dict().items()))
     if stats.errors:

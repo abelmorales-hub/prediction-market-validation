@@ -187,6 +187,22 @@ class Repo:
             )
             return {r["market_id"]: dict(r) for r in cur.fetchall()}
 
+    def unresolved_market_ids(self, before: datetime) -> list[str]:
+        """Catalogued markets whose end_date has passed and that have no outcome yet.
+
+        This is the watcher's work list when it is driven by the catalogue rather than by
+        a venue-wide scan of what settled.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "select m.market_id from markets m "
+                "left join outcomes o using (market_id) "
+                "where m.end_date < %s and o.market_id is null "
+                "order by m.end_date",
+                (before,),
+            )
+            return [r["market_id"] for r in cur.fetchall()]
+
     def outcome_ids(self, since: datetime, until: datetime) -> set[str]:
         """Markets we have an outcome for, by resolution time."""
         with self.conn.cursor() as cur:

@@ -36,6 +36,7 @@ class WatchStats:
     written: int = 0
     catalogued: int = 0
     skipped_unknown: int = 0
+    skipped_unsettled: int = 0
     flagged_lag: int = 0
     errors: dict[str, int] = field(default_factory=dict)
 
@@ -45,6 +46,7 @@ class WatchStats:
             "written": self.written,
             "catalogued": self.catalogued,
             "skipped_unknown": self.skipped_unknown,
+            "skipped_unsettled": self.skipped_unsettled,
             "flagged_lag": self.flagged_lag,
         }
 
@@ -116,8 +118,44 @@ class ResolutionWatcher:
             return stats
 
         meta = self._ensure_catalogued(resolutions, stats)
-        thresholds = self._thresholds(resolutions, meta)
+        self._record(resolutions, meta, stats)
+        return stats
 
+    def poll_catalogue(self, before: datetime) -> WatchStats:
+        """Ask the venue about our own markets instead of scanning everything it settled.
+
+        `poll` is unusable for a targeted backfill: the venue settles ~5,000 markets a
+        day, they are overwhelmingly combo shards, and they fill the paginated
+        `?status=settled` listing long before any market we track appears. Driving from
+        the catalogue is also cheap — one request per market we actually studied.
+        """
+        stats = WatchStats()
+        ids = self.repo.unresolved_market_ids(before)
+        resolutions = []
+        for market_id in ids:
+            stats.seen += 1
+            try:
+                res = self.source.get_resolution(market_id)
+            except Exception as exc:  # noqa: BLE001
+                stats.errors[type(exc).__name__] = stats.errors.get(type(exc).__name__, 0) + 1
+                log.warning("could not resolve %s: %s", market_id, exc)
+                continue
+            if res is None:
+                stats.skipped_unsettled += 1
+                continue
+            resolutions.append(res)
+
+        meta = self.repo.market_meta([r.market_id for r in resolutions])
+        self._record(resolutions, meta, stats)
+        return stats
+
+    def _record(
+        self,
+        resolutions: list[Resolution],
+        meta: dict[str, dict[str, object]],
+        stats: WatchStats,
+    ) -> None:
+        thresholds = self._thresholds(resolutions, meta)
         for res in resolutions:
             info = meta.get(res.market_id)
             if info is None:
@@ -129,7 +167,6 @@ class ResolutionWatcher:
             # was_disputed stays None: unknown, not false.
             self.repo.upsert_outcome(res, was_disputed=None, notes=note)
             stats.written += 1
-        return stats
 
     def _ensure_catalogued(
         self, resolutions: list[Resolution], stats: WatchStats
