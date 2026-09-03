@@ -25,8 +25,34 @@ uv run python -m scripts.dump_raw_samples   # re-record data/raw_samples/
 ```bash
 uv run python -m scripts.snapshot --minutes 60     # 0 = until interrupted
 uv run python -m scripts.gap_report --days 1       # exits 1 on a CRITICAL gap
-uv run python -m scripts.watch_resolutions --hours 24
+uv run python -m scripts.watch_resolutions --catalogue
 ```
+
+`watch_resolutions` defaults to scanning what the venue settled, which cannot
+reach a tracked market: ~5,000 combo shards settle a day and they fill every
+page of the listing. `--catalogue` inverts it — one request per market we
+actually recorded, driven from the catalogue. Use it.
+
+## Running unattended
+
+The collectors above are foreground jobs. When the shell that started them goes
+away, ingestion stops silently — that is how a 28-hour gap opened on 2026-09-02,
+and G0 wants fourteen unbroken days. Register them with Task Scheduler instead:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1 -Install
+powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1 -Status
+powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1 -Uninstall
+```
+
+`pmv-snapshot` re-fires every 15 minutes and `pmv-emit` every 4, both with
+`MultipleInstances=IgnoreNew`: a tick on a live job is discarded, a tick on a
+dead one restarts it. That is the whole restart mechanism — no failure detection
+to get wrong. Logs land in `logs/<job>-<date>.log`.
+
+Tasks run as the current user at logon, so **collection still stops if the
+machine sleeps or you log out**. Running with no user logged on needs stored
+credentials and an elevated install. Check `gap_report` before trusting a window.
 
 ## Scoring
 
