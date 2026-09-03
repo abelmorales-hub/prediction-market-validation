@@ -178,8 +178,13 @@ function Show-Status {
         # faults. Anything else is a job that ran and failed, which is worth naming
         # loudly: pmv-gefs sat at result=1 for hours and the only other symptom was a
         # log file that did not exist.
+        # A running job is not a failing one: LastTaskResult then describes the previous
+        # run, and after a Stop/Start cycle it holds the stop's error code. Flagging that
+        # puts a permanent FAILING next to the healthiest job on the list, which is how a
+        # warning stops being read.
         $rc = $info.LastTaskResult
-        $verdict = if ($rc -eq 0 -or $rc -eq 267009 -or $rc -eq 267011) { "" } else { "   <-- FAILING" }
+        $healthy = $rc -eq 0 -or $rc -eq 267009 -or $rc -eq 267011 -or $task.State -eq 'Running'
+        $verdict = if ($healthy) { "" } else { "   <-- FAILING (last scheduled run)" }
         Write-Host "$name : $($task.State)  last=$($info.LastRunTime)  result=$rc  next=$($info.NextRunTime)$verdict"
 
         $log = Join-Path $LogDir ("{0}-{1:yyyyMMdd}.log" -f $jobName, (Get-Date))
