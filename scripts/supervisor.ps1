@@ -33,7 +33,10 @@ param(
     # binding -- exit 1, before any log existed, so the only symptom was a task result of
     # 1 and an empty logs directory. The job list has one home now: $Tasks.
     [Parameter(ParameterSetName = 'Run', Mandatory = $true)]
-    [string]$Run
+    [string]$Run,
+    # Put the machine back to sleep after the band, but never while it is in use.
+    [Parameter(ParameterSetName = 'SleepIfIdle')][switch]$SleepIfIdle,
+    [Parameter(ParameterSetName = 'SleepIfIdle')][int]$IdleMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -59,6 +62,11 @@ $ThisScript = $PSCommandPath
 $BandStart      = '05:30'
 $BandDurationH  = 5.5
 $BandEnd        = ([datetime]$BandStart).AddHours($BandDurationH).ToString('HH:mm')
+
+# Sleep is attempted a few minutes after the band closes, to let the snapshotter reach
+# its own --until stop and flush rather than being suspended mid-sweep.
+$SleepTaskName  = 'pmv-sleep'
+$SleepAt        = ([datetime]$BandEnd).AddMinutes(5).ToString('HH:mm')
 
 $SnapshotIntervalMin = 15
 $EmitIntervalMin     = 4
@@ -139,6 +147,76 @@ function Invoke-Job {
     }
 }
 
+function Get-IdleSeconds {
+    # Seconds since the last keyboard or mouse input in this session.
+    #
+    # GetLastInputInfo is session-scoped, which is exactly what is wanted: the question
+    # is whether *this user* is at the machine, not whether the CPU is busy. A collector
+    # sweeping hundreds of order books is not "in use" by any definition that should
+    # postpone sleep.
+    if (-not ('PmvIdle' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class PmvIdle {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+    [DllImport("user32.dll")] private static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+    public static double Seconds() {
+        LASTINPUTINFO lii = new LASTINPUTINFO();
+        lii.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+        if (!GetLastInputInfo(ref lii)) { return -1; }
+        return (double)((uint)Environment.TickCount - lii.dwTime) / 1000.0;
+    }
+}
+'@
+    }
+    return [PmvIdle]::Seconds()
+}
+
+function Invoke-SleepIfIdle {
+    param([int]$IdleMinutes)
+
+    if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+    $log = Join-Path $LogDir ("sleep-{0:yyyyMMdd}.log" -f (Get-Date))
+    function Note($text) {
+        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $text" | Out-File $log -Append -Encoding utf8
+    }
+
+    # Both readings are taken before either is acted on, so every log line carries the
+    # full picture. Checking the collectors first and returning early hid the idle time
+    # entirely, which made the in-use guard -- the one thing this job exists for --
+    # impossible to observe without waiting for a real 11:05.
+    $idle = Get-IdleSeconds
+    $running = @(Get-Process python -ErrorAction SilentlyContinue)
+    $state = "idle={0:N0}s threshold={1}s collectors={2}" -f $idle, ($IdleMinutes * 60), $running.Count
+
+    # Never suspend on top of a running collector. --until should already have stopped
+    # the snapshotter, but a sweep that overran would otherwise be cut off mid-flush,
+    # and the lost buffer is not recoverable.
+    if ($running.Count -gt 0) {
+        Note "SKIP: collectors still running.  $state"
+        return 0
+    }
+    if ($idle -lt 0) {
+        Note "SKIP: could not read idle time; refusing to guess.  $state"
+        return 0
+    }
+    if ($idle -lt ($IdleMinutes * 60)) {
+        Note "SKIP: machine in use.  $state"
+        return 0
+    }
+
+    Note "SLEEP: suspending.  $state"
+    Add-Type -AssemblyName System.Windows.Forms
+    # Suspend, not Hibernate: S3 is what the wake timer resumes from most reliably, and
+    # this machine reports hybrid sleep as unavailable so Suspend should not be
+    # promoted to S4.
+    [System.Windows.Forms.Application]::SetSuspendState(
+        [System.Windows.Forms.PowerState]::Suspend, $false, $false) | Out-Null
+    return 0
+}
+
 function Install-Tasks {
     if (-not (Test-Path $PythonExe)) { throw "venv python not found at $PythonExe -- run uv sync first" }
 
@@ -184,6 +262,35 @@ function Install-Tasks {
         Write-Host "registered $($spec.Name)  (every $($spec.IntervalMin) min within the band)"
     }
 
+    # Two settings are deliberately the opposite of the collectors'.
+    #
+    # No WakeToRun: waking a sleeping machine in order to put it to sleep is absurd, and
+    # would burn a wake cycle every day for nothing.
+    #
+    # No StartWhenAvailable: a missed run must NOT fire late. If the machine was off at
+    # 11:05 and boots at 18:00, StartWhenAvailable would run this task minutes after the
+    # user sits down and suspend the machine underneath them.
+    $sleepAction = New-ScheduledTaskAction -Execute 'powershell.exe' `
+        -Argument ("-NoProfile -NonInteractive -WindowStyle Hidden " +
+                   "-ExecutionPolicy Bypass -File `"$ThisScript`" -SleepIfIdle") `
+        -WorkingDirectory $RepoRoot
+    $sleepSettings = New-ScheduledTaskSettingsSet `
+        -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
+        -DontStopOnIdleEnd `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries
+    $sleepSettings.WakeToRun = $false
+    $sleepSettings.StartWhenAvailable = $false
+
+    Register-ScheduledTask -TaskName $SleepTaskName `
+        -Action $sleepAction `
+        -Trigger (New-ScheduledTaskTrigger -Daily -At $SleepAt) `
+        -Settings $sleepSettings `
+        -Description 'Prediction market validation: sleep after the band, unless in use' `
+        -Force | Out-Null
+    Write-Host "registered $SleepTaskName  (at $SleepAt, skips if the machine is in use)"
+
     Write-Host ""
     Write-Host "Band: $BandStart-$BandEnd local, daily. Wakes the machine from sleep."
     Write-Host "Logs: $LogDir\<job>-<date>.log"
@@ -202,6 +309,10 @@ function Uninstall-Tasks {
             Write-Host "removed $name"
         }
         else { Write-Host "$name not registered" }
+    }
+    if (Get-ScheduledTask -TaskName $SleepTaskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $SleepTaskName -Confirm:$false
+        Write-Host "removed $SleepTaskName"
     }
 }
 
@@ -237,8 +348,9 @@ function Show-Status {
 }
 
 switch ($PSCmdlet.ParameterSetName) {
-    'Run'       { Invoke-Job -JobName $Run }
-    'Install'   { Install-Tasks }
-    'Uninstall' { Uninstall-Tasks }
-    default     { Show-Status }
+    'Run'         { Invoke-Job -JobName $Run }
+    'SleepIfIdle' { Invoke-SleepIfIdle -IdleMinutes $IdleMinutes }
+    'Install'     { Install-Tasks }
+    'Uninstall'   { Uninstall-Tasks }
+    default       { Show-Status }
 }
