@@ -7,7 +7,9 @@ one gap that matters — a hole across a prediction horizon — is invisible in 
 
 from datetime import UTC, datetime, timedelta
 
-from src.scheduler.gaps import classify, coverage, find_gaps
+import pytest
+
+from src.scheduler.gaps import classify, coverage, find_gaps, parse_since
 
 CLOSE = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
@@ -135,3 +137,27 @@ def test_coverage_counts_only_dense_samples() -> None:
 def test_coverage_falls_when_minutes_are_missing() -> None:
     rows = [("A", at(hours=24) + timedelta(minutes=i), CLOSE) for i in (0, 1, 2, 8, 9)]
     assert coverage(rows)["capture_rate"] < 0.6
+
+
+# ---------------------------------------------------------------- --since parsing
+
+
+def test_a_bare_timestamp_is_utc_not_machine_local() -> None:
+    """The exact bug that put the pre-declaration's analysis window two hours in the
+    future: an instant read off a CEST clock, written down as if it were UTC."""
+    assert parse_since("2026-09-03T17:07").tzinfo is UTC
+    assert parse_since("2026-09-03T17:07").hour == 17
+
+
+def test_an_explicit_offset_is_respected() -> None:
+    naive = parse_since("2026-09-03T19:07:40+02:00")
+    assert naive.astimezone(UTC).hour == 17
+
+
+def test_z_suffix_parses() -> None:
+    assert parse_since("2026-09-03T17:07:40Z").astimezone(UTC).hour == 17
+
+
+def test_a_non_instant_raises_rather_than_defaulting() -> None:
+    with pytest.raises(ValueError):
+        parse_since("last tuesday")

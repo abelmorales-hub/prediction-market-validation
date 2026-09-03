@@ -131,6 +131,10 @@ proceeding on a broken window.
 
 ## 5. Analysis window
 
+> **SUPERSEDED BY AMENDMENT 1 (2026-09-03).** The instant below is in the wrong
+> timezone and lands in a period containing CRITICAL gaps. Original text kept as
+> written; see the amendment for the operative start.
+
 Opens at the first snapshot after the supervisor was installed: **2026-09-03 18:33 UTC**.
 Observations before that timestamp are excluded (§1).
 
@@ -203,4 +207,37 @@ hypothesis about code that does not exist.
 
 ## Amendments
 
-*(none)*
+### Amendment 1 — 2026-09-03, analysis window start
+
+**Supersedes §5.** A pointer to this amendment was inserted at §5; that insertion and
+this entry are the only changes, and §5's original text is left as written.
+
+Two faults, one clerical and one operational.
+
+**The stated instant was in the wrong timezone.** "2026-09-03 18:33 UTC" was read off a
+local clock running CEST (+02:00). The supervisor was installed at 18:33 local, which is
+**16:33 UTC**. As written, the window opened at an instant that had not yet occurred when
+the document was committed — 18:33 UTC is 20:33 local.
+
+**The period immediately after that instant is not clean.** `gap_report --since
+2026-09-03T16:33Z` finds **4 CRITICAL gaps** — 35.9, 12.7 and 2.8 minutes — all between
+16:33 and 17:07 UTC, and all self-inflicted: re-registering the scheduled tasks with
+`-Force` stopped a running snapshotter, and a task action missing `-WindowStyle Hidden`
+died with `STATUS_CONTROL_C_EXIT` when the shell that started it exited. §4 makes the
+window void for any period containing a CRITICAL gap.
+
+**The window therefore opens at 2026-09-03 17:07:40 UTC**, the last clean collector
+restart. `gap_report --since 2026-09-03T17:07Z` reports 0 CRITICAL gaps and a 94.3%
+dense-window capture rate.
+
+Moving a window start is exactly the manoeuvre this document exists to prevent, so the
+grounds are recorded explicitly: **nothing in the excluded period has resolved.** The
+earliest tracked weather market settles the following day, no outcome from 16:33–17:07
+UTC is known to anyone, and the exclusion is therefore made on operational evidence that
+existed before any result. It also makes the study strictly smaller, never larger. Had a
+single observation in that period already resolved, the honest move would have been to
+keep the original instant and declare the window void.
+
+`scripts/gap_report.py` gained `--since` in the same change, because a rolling `--days`
+window cannot evaluate a fixed analysis window: it fails on holes that predate the study
+and are already excluded from it.

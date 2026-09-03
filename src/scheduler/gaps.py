@@ -15,7 +15,7 @@ G0 in the design doc ("no gaps >15 min") is the CRITICAL count. It must be zero.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from src.scheduler.cadence import DENSE, SPARSE, WINDOWS, in_dense_window
 
@@ -122,6 +122,18 @@ def coverage(rows: list[tuple[str, datetime, datetime]]) -> dict[str, float]:
         "dense_markets": float(len({m for m, _ in spans})),
         "capture_rate": len(dense) / expected if expected else 1.0,
     }
+
+
+def parse_since(text: str) -> datetime:
+    """An ISO instant bounding a coverage window.
+
+    A bare timestamp is read as UTC, never as machine-local. The pre-declaration's
+    analysis window was first recorded two hours wrong because an instant read off a
+    CEST clock was written down as UTC, so the ambiguous case resolves to the reading
+    that cannot silently shift with the collector's location.
+    """
+    parsed = datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _window_index(ts: datetime, close_time: datetime) -> int:
