@@ -16,3 +16,7 @@ data/cache/
 
 # Run logs.
 *.log
+
+# Scoring output. Regenerable from the database, and a committed report is a
+# claim about a sample size that has since moved.
+reports/
