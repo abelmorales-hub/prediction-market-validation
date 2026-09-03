@@ -31,7 +31,7 @@ def _stored_rows(n: int = 200):
                 {
                     "market_id": f"M{i}", "horizon_label": "T-24h", "model_version": model,
                     "p_hat": p, "market_mid": mid, "outcome": y, "was_disputed": False,
-                    "event_family": family, "category": category,
+                    "event_family": family, "category": category, "ts": i,
                 }
             )
     return rows

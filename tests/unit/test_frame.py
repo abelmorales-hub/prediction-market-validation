@@ -11,11 +11,11 @@ from src.analysis.frame import build_frame
 
 
 def _row(market="M1", horizon="T-24h", model="baseline_market", p=0.6, mid=0.6,
-         outcome="yes", family="F1", category="Crypto"):
+         outcome="yes", family="F1", category="Crypto", ts=1):
     return {
         "market_id": market, "horizon_label": horizon, "model_version": model,
         "p_hat": p, "market_mid": mid, "outcome": outcome, "was_disputed": False,
-        "event_family": family, "category": category,
+        "event_family": family, "category": category, "ts": ts,
     }
 
 
@@ -121,4 +121,23 @@ def test_the_market_baseline_reproduces_the_null_through_the_frame() -> None:
             rows.append(_row(market=f"M{i}", model=mv, p=p, mid=mid, family=f"F{i % 5}",
                              outcome="yes" if rng.uniform() < mid else "no"))
     f = build_frame(rows)
+    np.testing.assert_array_equal(f.forecasts["baseline_market"], f.market_mid)
+
+
+def test_a_re_emitted_horizon_does_not_mix_two_instants() -> None:
+    """The emitter can write the same (market, horizon) twice as the price moves.
+
+    Taking `market_mid` from the first row and `p_hat` from the last pairs a forecast
+    with a price it never saw. It broke G2 on live data: the null model, whose p_hat is
+    the mid itself, scored a non-zero edge out of nothing.
+    """
+    rows = [
+        _row(model="baseline_market", p=0.60, mid=0.60, ts=1),
+        _row(model="baseline_shrink", p=0.59, mid=0.60, ts=1),
+        _row(model="baseline_market", p=0.72, mid=0.72, ts=2),  # re-emitted later
+        _row(model="baseline_shrink", p=0.698, mid=0.72, ts=2),
+    ]
+    f = build_frame(rows)
+    assert len(f) == 1
+    assert f.market_mid[0] == 0.60
     np.testing.assert_array_equal(f.forecasts["baseline_market"], f.market_mid)

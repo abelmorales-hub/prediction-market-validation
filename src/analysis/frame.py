@@ -73,6 +73,7 @@ def build_frame(rows: Sequence[dict[str, Any]], drop_disputed: bool = True) -> F
         slot = keyed.setdefault(
             key,
             {
+                "ts": r["ts"],
                 "market_mid": float(r["market_mid"]),
                 "y": _as_binary(outcome),
                 "cluster": str(r["event_family"]),
@@ -82,6 +83,13 @@ def build_frame(rows: Sequence[dict[str, Any]], drop_disputed: bool = True) -> F
                 "p": {},
             },
         )
+        # A re-emitted horizon carries a *later* price. `market_mid` is taken from the
+        # first row of the key, so accepting a p_hat from a different instant would pair
+        # a forecast against a price it never saw -- and the null model, whose p_hat is
+        # the mid itself, would score a spurious non-zero edge. Rows are ordered by ts,
+        # so the earliest emission wins and later ones are dropped whole.
+        if r["ts"] != slot["ts"]:
+            continue
         slot["p"][str(r["model_version"])] = float(r["p_hat"])
         models.add(str(r["model_version"]))
 
