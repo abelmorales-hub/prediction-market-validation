@@ -59,14 +59,21 @@ $ThisScript = $PSCommandPath
 # 08:00 loses every East Coast city. For a weather study, biasing by climate region is
 # close to the worst available bias, so the band is a research parameter, not a
 # convenience. It is declared in docs/pre_declaration.md, Amendment 3.
+# A whole number of hours, deliberately. Task Scheduler rounds a repetition duration up
+# to the hour, so a 5.5h band became a 6h repetition window running to 11:30 while
+# everything else assumed 11:00. Matching the two removes the discrepancy rather than
+# compensating for it.
 $BandStart      = '05:30'
-$BandDurationH  = 5.5
+$BandDurationH  = 6
 $BandEnd        = ([datetime]$BandStart).AddHours($BandDurationH).ToString('HH:mm')
 
-# Sleep is attempted a few minutes after the band closes, to let the snapshotter reach
-# its own --until stop and flush rather than being suspended mid-sweep.
+# Sleep must come after the last repetition, not after the band's nominal end. At 11:05
+# with repetitions running to 11:30, pmv-emit was still due at 11:06 -- and every
+# collector carries WakeToRun, so the next tick would have woken the machine straight
+# back up. Ten minutes past the last tick, plus the snapshotter's own --until stop, so
+# nothing is suspended mid-flush.
 $SleepTaskName  = 'pmv-sleep'
-$SleepAt        = ([datetime]$BandEnd).AddMinutes(5).ToString('HH:mm')
+$SleepAt        = ([datetime]$BandEnd).AddMinutes(10).ToString('HH:mm')
 
 $SnapshotIntervalMin = 15
 $EmitIntervalMin     = 4
@@ -189,7 +196,10 @@ function Invoke-SleepIfIdle {
     # impossible to observe without waiting for a real 11:05.
     $idle = Get-IdleSeconds
     $running = @(Get-Process python -ErrorAction SilentlyContinue)
-    $state = "idle={0:N0}s threshold={1}s collectors={2}" -f $idle, ($IdleMinutes * 60), $running.Count
+    # No :N0. On a Spanish locale that renders 11058 as "11.058", which reads as eleven
+    # seconds to anyone scanning the log and made a correct SLEEP decision look like a
+    # bug. Plain integers, no thousands separator, in a log meant to be believed.
+    $state = "idle=$([int]$idle)s threshold=$($IdleMinutes * 60)s collectors=$($running.Count)"
 
     # Never suspend on top of a running collector. --until should already have stopped
     # the snapshotter, but a sweep that overran would otherwise be cut off mid-flush,
