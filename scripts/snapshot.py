@@ -111,6 +111,12 @@ def main() -> int:
             runner.flush()
             if conn is not None:
                 conn.close()
+            # Simétrico con hold_awake(). Windows suelta el estado de ejecución
+            # al morir el proceso, así que esto no arregla una fuga -- lo que
+            # arregla es que soltar un bloqueo de todo el sistema dependiera de
+            # que el proceso termine. Sin esta línea, release() no se llamaba
+            # desde ningún sitio: era código muerto con nombre de contrato.
+            wakelock.release()
 
     print("\n" + "  ".join(f"{k}={v}" for k, v in stats.as_dict().items()))
     if stats.failures:
