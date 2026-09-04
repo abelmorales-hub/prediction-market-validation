@@ -78,14 +78,39 @@ powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1 -Status
 powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1 -Uninstall
 ```
 
-`pmv-snapshot` re-fires every 15 minutes, `pmv-emit` every 4 and `pmv-gefs` every 60,
-all with `MultipleInstances=IgnoreNew`: a tick on a live job is discarded, a tick on a
-dead one restarts it. That is the whole restart mechanism — no failure detection to get
-wrong. Logs land in `logs/<job>-<date>.log`.
+`pmv-snapshot` re-fires every 15 minutes, `pmv-emit` every 4, `pmv-gefs` every 60 and
+`pmv-resolutions` every 240, all with `MultipleInstances=IgnoreNew`: a tick on a live
+job is discarded, a tick on a dead one restarts it. That is the whole restart mechanism
+— no failure detection to get wrong. Logs land in `logs/<job>-<date>.log`.
 
-Tasks run as the current user at logon, so **collection still stops if the
-machine sleeps or you log out**. Running with no user logged on needs stored
-credentials and an elevated install. Check `gap_report` before trusting a window.
+### The collection band
+
+This machine is not on 24/7, so collection is not either. The tasks run in a **daily
+band, 05:30–11:30 Europe/Madrid**, and `pmv-sleep` suspends the machine at 11:40 unless
+someone is using it. `WakeToRun` wakes it for the band; the snapshotter holds a Windows
+execution-state lock so Windows cannot idle-sleep out from under a running window.
+
+The band is not a convenience. Every Kalshi daily temperature market closes just after
+midnight US local, so its T-24h horizon lands at 07:00–10:00 in Madrid across the four
+US timezones; the band brackets 188 of 189 observed weather horizons. Narrowing it does
+not thin the sample evenly, it deletes whole timezones. See `docs/pre_declaration.md`,
+Amendments 3 and 4.
+
+**G0 was redefined with it.** It is no longer "no gap for fourteen days" but *no
+CRITICAL gap inside the band*, for fourteen days:
+
+```bash
+uv run python -m scripts.gap_report --since <window start> \
+    --band 05:30-11:30 --tz Europe/Madrid
+```
+
+Without `--band`, every overnight hole counts as a fault, the gate reads red forever,
+and a gate nobody can pass is a gate nobody reads. `gap_report` says so when the flag
+is missing rather than answering the wrong question quietly.
+
+Tasks run as the current user, so **wake-to-run resumes from sleep, not from a full
+shutdown** — a machine powered off overnight needs BIOS wake-on-RTC instead, and nothing
+here can tell the difference. Check `gap_report` before trusting a window.
 
 ## Scoring
 

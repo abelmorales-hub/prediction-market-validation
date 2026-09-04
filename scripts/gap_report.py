@@ -63,6 +63,19 @@ def main() -> int:
 
     band_note = f"  band {args.band} {args.tz}" if args.band else ""
     print(f"GAP REPORT  {label}  tolerance {args.tolerance}x cadence{band_note}")
+    if not args.band:
+        # Deliberately a warning and not a default. Hardcoding the operative band
+        # here would put the same constant in two places, and a band that drifts
+        # from its own specification is exactly the bug this warning exists to
+        # stop: pre_declaration.md said 05:30-11:00 for a day while the collector
+        # ran to 11:30, and nothing anywhere errored.
+        print(
+            "NOTE: no --band given, so this measures the ORIGINAL G0 (continuous\n"
+            "      collection). Since 2026-09-04 the collector runs in a daily band\n"
+            "      and G0 is defined inside it -- see docs/pre_declaration.md,\n"
+            "      Amendments 3 and 4. Without --band every overnight hole counts\n"
+            "      as a fault and this gate can never pass.\n"
+        )
     print(f"snapshots: {len(rows)}  markets: {len({r[0] for r in rows})}\n")
     if not rows:
         print("No snapshots in range. Nothing to check.")

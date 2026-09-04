@@ -340,3 +340,30 @@ run resumes from sleep, not from a full shutdown; a machine powered off overnigh
 BIOS wake-on-RTC instead, and nothing in the pipeline can detect the difference. The
 snapshotter holds a Windows execution-state lock while it runs, which prevents idle
 sleep but cannot prevent a lid close, a manual sleep, or a shutdown.
+
+### Amendment 4 — 2026-09-04, the band ends at 11:30, not 11:00
+
+**Supersedes the times in Amendment 3.** Amendment 3 was written against a 5.5-hour
+band. Task Scheduler rounds a repetition duration up to the hour, so the collectors
+actually re-fired until 11:30 while `--until` and the sleep task assumed 11:00. That was
+reconciled in code the same evening by making the band a whole **six hours** — the
+document was not updated with it, and this amendment is that correction.
+
+**Operative band: 05:30–11:30 Europe/Madrid.** The G0 command in Amendment 3 is
+therefore wrong as written and must be run as:
+
+```bash
+gap_report --since <window start> --band 05:30-11:30 --tz Europe/Madrid
+```
+
+Judged with the documented `05:30-11:00`, every sample between 11:00 and 11:30 falls
+outside the declared window: coverage would be measured against a band the collector was
+not keeping.
+
+**No effect on what is captured.** The last horizon is 10:00 local and its dense window
+closes at 10:15, so the extra thirty minutes is slack, not coverage — the 188-of-189
+figure in Amendment 3 stands unchanged. This corrects the record, not the sample.
+
+**How it was found:** an audit of the repository against the project's own review rules,
+not by a failing run. A band that disagrees with its own specification produces no error
+anywhere; it just quietly answers a different question than the one that was declared.

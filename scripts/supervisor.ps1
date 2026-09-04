@@ -51,9 +51,10 @@ $ThisScript = $PSCommandPath
 # often enough to catch a horizon inside its tolerance window.
 # The daily collection band, in local time. Every Kalshi daily temperature market
 # closes just after midnight US local, so its T-24h horizon lands at ~01:00 US local --
-# 07:00 to 10:00 in Spain across the four US timezones. A 05:30-11:00 band brackets all
-# of them with margin (the dense window opens 15 min before each horizon) and covers
-# 188 of 189 observed weather horizons.
+# 07:00 to 10:00 in Spain across the four US timezones. The band brackets all of them
+# with margin (the dense window opens 15 min before each horizon) and covers 188 of 189
+# observed weather horizons. The last horizon plus its window closes at 10:15, so the
+# 11:30 end is slack, not coverage.
 #
 # Shrinking it does not thin the sample evenly, it deletes whole timezones: starting at
 # 08:00 loses every East Coast city. For a weather study, biasing by climate region is
