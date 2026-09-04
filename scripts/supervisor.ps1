@@ -240,14 +240,26 @@ function Install-Tasks {
             -RepetitionInterval (New-TimeSpan -Minutes $spec.IntervalMin) `
             -RepetitionDuration (New-TimeSpan -Hours $BandDurationH)).Repetition
 
+        # StartWhenAvailable is deliberately OFF, and this is not a detail.
+        #
+        # With it on, Task Scheduler treats every band occurrence that the machine slept
+        # through as a missed run to be caught up "as soon as possible" -- and WakeToRun
+        # then wakes the machine to do it. Observed 2026-09-03: the machine was suspended
+        # at 22:55:52 and woke at 22:55:55, three seconds later, because pmv-emit had
+        # missed occurrences from a StartBoundary in the past. It then stayed awake all
+        # night. powercfg /lastwake named the task outright.
+        #
+        # A late catch-up run is worthless here anyway: it would collect outside the
+        # band, which is exactly what the band exists to prevent. The daily trigger plus
+        # WakeToRun is what starts collection; nothing needs to run late.
         $settings = New-ScheduledTaskSettingsSet `
             -MultipleInstances IgnoreNew `
             -ExecutionTimeLimit $spec.TimeLimit `
-            -StartWhenAvailable `
             -DontStopOnIdleEnd `
             -AllowStartIfOnBatteries `
             -DontStopIfGoingOnBatteries `
             -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5)
+        $settings.StartWhenAvailable = $false
 
         # Wake the machine for the band. This is the whole point: the horizons are at
         # 07:00-10:00 local and nobody is going to be awake to press a key. It works
