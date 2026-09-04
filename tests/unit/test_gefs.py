@@ -74,8 +74,25 @@ def test_a_day_already_under_way_is_not_a_pure_forecast() -> None:
 def test_local_today_uses_the_station_offset_not_the_machine() -> None:
     """The collector runs in Europe and every station is in North America; a machine-
     local date would be a day ahead for most of the evening."""
-    assert _local_today({"utc_offset_seconds": -18000}) is not None
-    assert isinstance(_local_today({"utc_offset_seconds": 0}), date)
+    # 03:00 UTC is still the previous day at a UTC-5 station.
+    at = datetime(2026, 9, 4, 3, 0, tzinfo=UTC)
+    assert _local_today({"utc_offset_seconds": -18000}, at) == date(2026, 9, 3)
+    assert _local_today({"utc_offset_seconds": 0}, at) == date(2026, 9, 4)
+
+
+def test_local_today_reads_the_given_instant_not_the_wall_clock() -> None:
+    """Regression: it called datetime.now() and ignored the instant it was handed.
+
+    Two failures in one. The unit tests below passed the day they were written and
+    failed the next morning, because `is_pure_forecast` was computed against the
+    real date instead of the record's. And since `fetched_at` is stamped *before*
+    the HTTP request, a fetch straddling local midnight stored a timestamp from one
+    day next to a flag computed for the next -- a point-in-time row contradicting
+    itself, which is the one thing this table exists to prevent.
+    """
+    body = {"utc_offset_seconds": 0}
+    assert _local_today(body, datetime(2001, 1, 1, 12, 0, tzinfo=UTC)) == date(2001, 1, 1)
+    assert _local_today(body, datetime(2099, 12, 31, 12, 0, tzinfo=UTC)) == date(2099, 12, 31)
 
 
 def test_payload_keeps_every_member() -> None:

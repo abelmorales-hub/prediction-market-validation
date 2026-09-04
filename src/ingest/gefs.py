@@ -170,7 +170,7 @@ def _parse(
             f"below the {MIN_MEMBERS} floor"
         )
 
-    local_today = _local_today(body)
+    local_today = _local_today(body, fetched_at)
     days = []
     for i, day_text in enumerate(daily["time"]):
         target = date.fromisoformat(day_text)
@@ -201,12 +201,21 @@ def _parse(
     )
 
 
-def _local_today(body: dict[str, Any]) -> date:
-    """Today at the station, derived from the offset the API itself applied.
+def _local_today(body: dict[str, Any], at: datetime) -> date:
+    """The date at the station when `at` happened, using the offset the API applied.
 
     Using the machine's local date instead would be wrong from any other timezone,
     which is exactly the situation here: the collector runs in Europe and every
     station is in North America.
+
+    `at` is the row's own `fetched_at`, not `datetime.now()`. It read the clock
+    directly until 2026-09-04, which was wrong twice over. It made the function
+    non-deterministic — the unit tests passed on the day they were written and
+    failed the next morning, which is how this was found — and it let a record
+    contradict itself: `fetched_at` is stamped *before* the HTTP request, so a
+    fetch straddling local midnight stored a timestamp from one day beside an
+    `is_pure_forecast` computed for the next. Point-in-time is the only thing
+    this table has to get right.
     """
     offset_s = int(body.get("utc_offset_seconds", 0))
-    return datetime.fromtimestamp(datetime.now(UTC).timestamp() + offset_s, UTC).date()
+    return datetime.fromtimestamp(at.timestamp() + offset_s, UTC).date()
