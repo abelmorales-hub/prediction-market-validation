@@ -367,3 +367,73 @@ figure in Amendment 3 stands unchanged. This corrects the record, not the sample
 **How it was found:** an audit of the repository against the project's own review rules,
 not by a failing run. A band that disagrees with its own specification produces no error
 anywhere; it just quietly answers a different question than the one that was declared.
+
+### Amendment 5 — 2026-09-05, H2 exists and is frozen
+
+**Supersedes the "no forecasting model exists" premise of §7.** The point-in-time GEFS
+ingestion §7 named as the remaining work has been running since 2026-09-03, and the model
+that consumes it now exists.
+
+**The model.** `model_version = gefs_ensemble_raw`, frozen at commit **`782bb44`**
+(`src/models/weather.py`, `src/analysis/weather.py`). It is §4's baseline 5 and nothing
+more: the share of GEFS members whose forecast maximum settles the rung YES, unadjusted
+for the station. It answers the market's own strike, read structurally from `strike_type`
++ `floor_strike`/`cap_strike`, never from the question text.
+
+**Freezing is a claim about two files, not about HEAD.** Predictions are stamped with the
+`git_sha` at run time, so rows emitted after this amendment will carry a later sha than
+`782bb44`. That is not drift as long as the model itself has not moved, which is
+checkable rather than asserted:
+
+```bash
+git log 782bb44..HEAD -- src/models/weather.py src/analysis/weather.py   # must be empty
+```
+
+A non-empty result means the frozen model changed mid-study. If it ever needs to change,
+that is a **new `model_version` and a new amendment**, not an edit — the append-only
+`predictions` table would otherwise hold two different models under one name.
+
+**Three modelling choices, declared here because they are arguable and because declaring
+them after seeing a score is worthless.**
+
+1. *Members are rounded half-up before comparison.* The market settles on a whole-degree
+   observation, so the rounding is part of the question rather than presentation. Python's
+   bankers' rounding would send 94.5 down and 95.5 up, biasing alternate buckets in
+   opposite directions up a ladder — invisible in any aggregate.
+2. *Per-rung Laplace smoothing, `(k + 1) / (n + 2)`.* A 31-member ensemble votes
+   unanimously on most rungs of a six-rung ladder, and the raw share is then exactly 0 or
+   1, which the `0 < p_hat < 1` constraint refuses. Dropping those rows would leave a
+   sample consisting only of near-the-money rungs — where the market is sharpest — which
+   is a selection effect that would present as a result. The consequence is that a ladder
+   sums to `(n + rungs) / (n + 2)`, not 1. That is correct for a study which scores each
+   rung as its own binary market against its own price; normalising across the ladder
+   would couple observations the bootstrap treats as independent.
+3. *No filter on `is_pure_forecast`, and `KXHIGH` only.* That flag marks records fetched
+   after the target day had begun locally, and T-24h for these markets lands near 01:00
+   local **on** the target day — so filtering on it would reject essentially every T-24h
+   forecast and leave H2 with no sample. At 01:00 the day's maximum lies entirely in the
+   future, so no observed weather can have entered the number. This argument is about the
+   maximum only; `KXLOW` is therefore declined rather than forecast, and counted as
+   declined.
+
+**What the window before G0 is for, and what it is not for.** §7 says accrual toward the
+pre-committed n begins when G0 passes, and that is unchanged: rows stamped before
+**2026-09-17** are excluded from the G3 sample. Emitting now is not accrual, it buys three
+things that cannot be bought later, because predictions cannot be backfilled:
+
+* a measured `σ_d` for a model that actually differs from the market, which §6 requires
+  before the power calculation means anything;
+* bug shakeout on throwaway data rather than on the counted sample;
+* an **in-time training split** for the station-bias correction. That correction will be a
+  separate `model_version`, fitted only on data stamped before 2026-09-17 and frozen in
+  its own amendment before that date. Fitting it on the counted window would be leakage.
+
+**`σ_d` remains 0.06 for planning.** The measured 0.0176 of §6 is still an artifact of
+`baseline_shrink`. `gefs_ensemble_raw` disagrees with the market by 10–20 points per rung
+on the first live comparison, so its `σ_d` will be a real quantity — but it is not
+measured yet, and the planning assumption does not move until it is, in a dated amendment.
+
+**What must not happen before the single G3 run.** H2's Brier score, BSS, or any
+comparison of it against the market must not be inspected. The pre-G0 window is for the
+three items above and for nothing that looks like an answer. §4's single run at the
+pre-committed n stands.
