@@ -11,7 +11,7 @@ venue module, never leaked past this file.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
@@ -37,6 +37,26 @@ class Market(BaseModel):
     is_combo: bool = False
     """Auto-generated multi-leg parlay. Dominates the raw listing and is almost
     certainly not the universe you want to study — filtered, not hidden."""
+
+    # -- scalar settlement, absent on most markets ------------------------
+    #
+    # A model has to answer the market's actual question, and for a strike ladder that
+    # question is a bound on a number, not the sentence in `question`. Carrying it here
+    # rather than re-deriving it downstream keeps the parsing in the venue module, where
+    # every other venue quirk is already resolved.
+    #
+    # All optional: a match outcome or an election has no strike, and None must stay
+    # None. Defaulting any of these would let a forecaster answer confidently about a
+    # threshold the market does not have.
+    strike_type: str | None = None
+    """'between' | 'less' | 'greater' — the venue's own encoding, not re-interpreted."""
+    floor_strike: float | None = None
+    cap_strike: float | None = None
+    settles_on: date | None = None
+    """Local calendar day being measured. Distinct from `close_time`, which for a daily
+    weather market falls just after local midnight of the *following* day."""
+    settlement_station: str | None = None
+    """NWS CLI product code (e.g. CLIMDW) for markets that settle on a station reading."""
 
 
 class BookLevel(BaseModel):

@@ -87,6 +87,11 @@ class Repo:
                 m.open_time,
                 m.close_time,
                 None,
+                m.strike_type,
+                m.floor_strike,
+                m.cap_strike,
+                m.settles_on,
+                m.settlement_station,
             )
             for m in markets
         ]
@@ -95,13 +100,22 @@ class Repo:
                 """
                 insert into markets (market_id, venue, slug, question, category,
                                      event_family, series_id, created_at, end_date,
-                                     resolution_source)
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                     resolution_source, strike_type, floor_strike,
+                                     cap_strike, settles_on, settlement_station)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 on conflict (market_id) do update set
                     question = excluded.question,
                     category = excluded.category,
                     event_family = excluded.event_family,
-                    end_date = excluded.end_date
+                    end_date = excluded.end_date,
+                    -- Refreshed, not left alone: every row catalogued before migration
+                    -- 0004 has NULL strikes, and the next snapshot tick is the only
+                    -- chance to fill them while the market is still open.
+                    strike_type = excluded.strike_type,
+                    floor_strike = excluded.floor_strike,
+                    cap_strike = excluded.cap_strike,
+                    settles_on = excluded.settles_on,
+                    settlement_station = excluded.settlement_station
                 """,
                 rows,
             )
@@ -226,13 +240,19 @@ class Repo:
     # -- reads ------------------------------------------------------------
 
     def market_meta(self, market_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
-        """category and end_date for the given markets. Missing ids are simply absent,
-        which is how the watcher detects what still needs cataloguing."""
+        """Catalogue metadata for the given markets. Missing ids are simply absent,
+        which is how the watcher detects what still needs cataloguing.
+
+        The strike columns come along because a forecaster needs the market's actual
+        question — a bound on a number — and re-reading them per market at emit time
+        would put a query inside the one job that cannot be re-run later.
+        """
         if not market_ids:
             return {}
         with self.conn.cursor() as cur:
             cur.execute(
-                "select market_id, category, end_date, event_family "
+                "select market_id, category, end_date, event_family, series_id, "
+                "strike_type, floor_strike, cap_strike, settles_on, settlement_station "
                 "from markets where market_id = any(%s)",
                 (list(market_ids),),
             )

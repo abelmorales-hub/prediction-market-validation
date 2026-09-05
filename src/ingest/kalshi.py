@@ -16,7 +16,8 @@ documentation. Things the docs and write-ups get wrong, verified live on 2026-09
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import re
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +25,58 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from src.ingest.base import Book, BookLevel, Market, PricePoint, Resolution
 from src.ingest.http import DiskCache, PacedClient
+from src.ingest.stations import station_for
 
 SETTLED_RESULTS = {"yes": 1, "no": 0}
+
+# The settlement rule, not the title. `rules_primary` reads:
+#
+#   "If the maximum temperature recorded at Austin (CLIAUS) for Sep 5, 2026, is between
+#    94-95 fahrenheit according to The Weather Company, then the market resolves to Yes."
+#
+# Both facts a temperature forecast needs -- which station, which local day -- appear
+# there and nowhere else structurally. The title carries the same day in prose and the
+# ticker encodes it as "26SEP05", but the ticker cannot distinguish a `less` rung from a
+# `greater` one (T94 is "below 94", T101 is "102 or above"), so it is not a source of
+# truth for anything. Parse the rule or decline.
+_STATION_RE = re.compile(r"\((CLI[A-Z]{3})\)")
+_TARGET_RE = re.compile(r"\bfor ([A-Z][a-z]{2}) (\d{1,2}), (\d{4})\b")
+
+# Explicit rather than strptime("%b %d, %Y"): %b reads the process locale, and this
+# process runs in Europe. A locale that spells September "sept" would silently stop
+# every weather market cataloguing correctly, and predictions cannot be backfilled.
+_MONTHS = {
+    "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+    "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+}
+
+
+def station_from_rules(rules: str) -> str | None:
+    """The CLI station code named in the settlement rule, if it is one we know.
+
+    An unrecognised code returns None rather than being passed through: `stations.py`
+    holds the coordinates and timezone, and a code absent from it has no grid point to
+    forecast at. Silently accepting it would catalogue a market as forecastable that
+    nothing can then forecast.
+    """
+    m = _STATION_RE.search(rules or "")
+    if m is None:
+        return None
+    return m.group(1) if station_for(m.group(1)) else None
+
+
+def settles_on_from_rules(rules: str) -> date | None:
+    """The local calendar day the settlement rule measures."""
+    m = _TARGET_RE.search(rules or "")
+    if m is None:
+        return None
+    month = _MONTHS.get(m.group(1))
+    if month is None:
+        return None
+    try:
+        return date(int(m.group(3)), month, int(m.group(2)))
+    except ValueError:
+        return None
 
 
 def _num(v: Any) -> float | None:
@@ -56,13 +107,20 @@ class KalshiMarket(BaseModel):
     volume_fp: float = 0.0
     yes_bid_dollars: float | None = None
     yes_ask_dollars: float | None = None
+    # Scalar settlement. Present on strike ladders, absent (or empty string) elsewhere.
+    strike_type: str = ""
+    floor_strike: float | None = None
+    cap_strike: float | None = None
+    rules_primary: str = ""
 
     @field_validator("volume_fp", mode="before")
     @classmethod
     def _vol(cls, v: Any) -> float:
         return _num(v) or 0.0
 
-    @field_validator("yes_bid_dollars", "yes_ask_dollars", mode="before")
+    @field_validator(
+        "yes_bid_dollars", "yes_ask_dollars", "floor_strike", "cap_strike", mode="before"
+    )
     @classmethod
     def _price(cls, v: Any) -> float | None:
         return _num(v)
@@ -85,6 +143,11 @@ class KalshiMarket(BaseModel):
             yes_bid=self.yes_bid_dollars,
             yes_ask=self.yes_ask_dollars,
             is_combo=bool(self.mve_collection_ticker),
+            strike_type=self.strike_type or None,
+            floor_strike=self.floor_strike,
+            cap_strike=self.cap_strike,
+            settles_on=settles_on_from_rules(self.rules_primary),
+            settlement_station=station_from_rules(self.rules_primary),
         )
 
 

@@ -1,4 +1,9 @@
-"""Write baseline forecasts for every horizon that has coverage and is still open.
+"""Write forecasts for every horizon that has coverage and is still open.
+
+Baselines and H2 both, in one pass and through one door: they must be stamped at the
+same instant with the same market price, and two jobs would eventually drift apart on
+which snapshot each considered current. The script keeps its name because the schedule
+and the supervisor entry are named after it.
 
 Run: uv run python -m scripts.emit_baselines [--tolerance-min 5]
 
@@ -17,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 
 from src.analysis.emit import emit
 from src.analysis.horizons import horizon_points
+from src.analysis.weather import WeatherForecaster
 from src.config import get_settings
 from src.storage.duckdb_views import connect as duck_connect
 from src.storage.supabase_repo import Repo, connect
@@ -71,8 +77,17 @@ def main() -> int:
         return 0
 
     with connect(cfg.supabase_db_url) as conn:
-        stats = emit(Repo(conn), points, closes, git_sha(), now)
+        repo = Repo(conn)
+        # One catalogue read for the whole pass. H2 needs each market's strike, station
+        # and target day, and this job runs on a horizon that cannot be revisited — it
+        # does not get to spend that window on a query per point.
+        forecaster = WeatherForecaster(repo, repo.market_meta([p.market_id for p in points]))
+        stats = emit(repo, points, closes, git_sha(), now, forecaster=forecaster)
     print("  ".join(f"{k}={v}" for k, v in stats.as_dict().items()))
+    # Printed every run, including the zeroes. A model that quietly stops forecasting
+    # looks exactly like a model with nothing to say, and the baselines keep flowing
+    # either way — so the reason for every refusal is on the line or it is invisible.
+    print("  ".join(f"{k}={v}" for k, v in forecaster.stats.as_dict().items()))
     return 0
 
 

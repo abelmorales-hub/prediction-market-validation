@@ -14,7 +14,7 @@ constraint is the honest cost of forward-testing.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -27,9 +27,33 @@ log = logging.getLogger(__name__)
 SHRINK_ALPHA = 0.9
 SHRINK_CENTRE = 0.5
 
-# No features are computed in this build, so there is nothing to hash. A literal marker
-# beats a hash of the empty string, which would look like a real fingerprint.
+# The closed-form baselines compute no features, so there is nothing to hash. A literal
+# marker beats a hash of the empty string, which would look like a real fingerprint.
 NO_FEATURES = "none"
+
+
+@dataclass(frozen=True)
+class Forecast:
+    """One number and the evidence behind it.
+
+    A baseline's evidence is nothing (`NO_FEATURES`); a model's is the point-in-time
+    record it read. Carrying the two together means a prediction row can never be written
+    with someone else's fingerprint on it.
+    """
+
+    p_hat: float
+    features_hash: str
+
+
+Forecaster = Callable[[HorizonPoint], Mapping[str, "Forecast"]]
+"""Extra forecasts for one horizon point, keyed by model_version.
+
+Returns an empty mapping when it cannot forecast this point — a model that declines is
+not an error, and the reason belongs to the forecaster's own counters, not to EmitStats.
+Injected rather than imported so that `emit` stays the single door every forecast goes
+through, and so a model needing the network or the database cannot smuggle either in
+here without the caller choosing it.
+"""
 
 
 @dataclass
@@ -85,12 +109,17 @@ def emit(
     close_times: Mapping[str, datetime],
     git_sha: str,
     now: datetime,
+    forecaster: Forecaster | None = None,
 ) -> EmitStats:
-    """Insert one prediction per (market, horizon, baseline).
+    """Insert one prediction per (market, horizon, forecast).
 
     Duplicates are left to the database. `predictions` is append-only and its primary key
     covers the horizon and model, so a re-run cannot silently double-count; a conflict
     here means the row is already recorded, which is success, not failure.
+
+    A model goes through this same function as the baselines, with the same close check
+    and the same degenerate-price rule, because a model that got its own emit path would
+    eventually get its own subtly different one.
     """
     stats = EmitStats()
     for point in points:
@@ -101,9 +130,26 @@ def emit(
             stats.skipped_closed += 1
             continue
         if not is_scorable(point.mid):
+            # Applied to models too: a market at 0 or 1 has stopped being uncertain, and
+            # scoring a model there would measure agreement with a settled price.
             stats.skipped_degenerate += 1
             continue
-        for name, p_hat in baseline_values(point.mid).items():
+
+        forecasts: dict[str, Forecast] = {
+            name: Forecast(p_hat, NO_FEATURES)
+            for name, p_hat in baseline_values(point.mid).items()
+        }
+        if forecaster is not None:
+            try:
+                forecasts.update(forecaster(point))
+            except Exception as exc:  # noqa: BLE001 - a model must never cost a baseline
+                # The baselines are the irreplaceable part: this job cannot be re-run
+                # once the horizon passes, so a model blowing up must not take the whole
+                # tick with it. Counted and logged, then the baselines still go in.
+                stats.failed += 1
+                log.warning("forecaster failed for %s: %s", point.market_id, exc)
+
+        for name, fc in forecasts.items():
             stats.considered += 1
             try:
                 repo.insert_prediction(
@@ -111,10 +157,10 @@ def emit(
                         market_id=point.market_id,
                         ts=point.ts,
                         horizon_label=point.horizon_label,
-                        p_hat=p_hat,
+                        p_hat=fc.p_hat,
                         model_version=name,
                         git_sha=git_sha,
-                        features_hash=NO_FEATURES,
+                        features_hash=fc.features_hash,
                         market_mid=point.mid,
                         market_bid=point.bid,
                         market_ask=point.ask,
