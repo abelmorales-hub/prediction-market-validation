@@ -76,6 +76,17 @@ def main() -> int:
             "      Amendments 3 and 4. Without --band every overnight hole counts\n"
             "      as a fault and this gate can never pass.\n"
         )
+    if not args.since:
+        # The symmetric trap, and the one that actually cost something: run without
+        # --since, this answers "was yesterday clean", which is not the gate. G0 asks
+        # whether *the whole declared window* is clean, and a fault three days back is
+        # invisible here. That is how 2026-09-04's 57-minute early stop went unseen
+        # until 2026-09-07 while the daily check reported "G0 clean" every day.
+        print(
+            "NOTE: no --since given, so this measures the last "
+            f"{args.days}d only and is NOT the G0 gate. G0 is a property of the\n"
+            "      whole analysis window -- pass --since <window start> to test it.\n"
+        )
     print(f"snapshots: {len(rows)}  markets: {len({r[0] for r in rows})}\n")
     if not rows:
         print("No snapshots in range. Nothing to check.")

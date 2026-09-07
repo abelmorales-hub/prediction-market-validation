@@ -569,3 +569,61 @@ through the broken sweep and is now meaningless. **No new completion date is dec
 here.** It will be measured over the first clean week after 2026-09-21 and recorded in its
 own amendment. Guessing it now, from one post-fix sample taken on the day of the fix,
 would be exactly the kind of number this document exists to prevent.
+
+### Amendment 8 — 2026-09-07, the G0 restart is withdrawn; the real fault is 09-04
+
+**Supersedes Amendment 7's G0 restart, written hours earlier the same day.** That restart
+was wrong, and the reason it was wrong is worth recording: it reasoned from "the collector
+changed" to "the window is void" without asking what G0 actually certifies.
+
+**G0 certifies an operational property, and admission is not part of it.** The gate is
+that the machine wakes, the scheduled tasks fire, and ticks land inside the band. The
+2026-09-07 change replaced *which markets are admitted*; it did not touch the wake lock,
+the band, the tick loop, or the cadence. It was also deployed at 20:13 local, nine hours
+after the band closed, so no band was interrupted by it. A window is not void because the
+set of markets inside it changed — only because a horizon inside it went unsampled.
+**Earliest G0 completion returns to 2026-09-17 as far as this change is concerned.**
+
+**But the window is not clean, for an unrelated reason found while checking this.** Run
+as Amendment 4 specifies, over the whole declared window rather than the last day:
+
+```bash
+gap_report --since 2026-09-03T18:33Z --band 05:30-11:30 --tz Europe/Madrid
+```
+
+**G0 NOT MET: 7 CRITICAL in-band dense misses.** All seven share one timestamp —
+**2026-09-04T10:33:55** — so it is one stoppage, not seven faults. The collector logged a
+healthy sweep at 10:33 and flushed 361 snapshots at 10:34–10:35, then stopped, with the
+band open until 11:30. Amendment 3 is explicit that this is a fault and not a scope limit:
+"Stopping early — last sample at 09:00 with the band open until 11:00 — is a fault."
+
+**The cause was deployment, not the machine.** The band feature was being installed that
+day (`4dcdbe3`, `32be461`, `5e637a7`, `b45d18f` are all 2026-09-04), and
+`supervisor.ps1 -Install` uses `-Force`, which stops running jobs. The known trap, paid
+for. Capture over the window is 97.6% across 1,130 markets and every other day is clean:
+the wake-and-register machinery is working, exactly as claimed.
+
+**Why it stayed hidden for three days, which is the more serious finding.** `gap_report`
+defaults to `--days 1`. Run that way it answers "was yesterday clean", and it answered
+"G0 clean" every day while a fault sat three days back inside the same declared window.
+G0 is a property of the *whole* window and can only be tested with `--since`. The script
+now says so when `--since` is absent, in the same terms as the existing `--band` warning —
+both are the same failure: a gate quietly answering an easier question than the one
+declared.
+
+**Operative dates.** The G0 clock starts after the last CRITICAL, so fourteen consecutive
+clean days run from **2026-09-05** and complete on **2026-09-19**. Rows stamped before
+2026-09-19 are excluded from the G3 sample, replacing both the 2026-09-17 of Amendment 5
+and the 2026-09-21 of Amendment 7. Amendment 6's n = 715 is unchanged.
+
+**One thing this does not do.** Six of the seven affected markets are sports and
+economics, which Amendment 7's weather-only universe no longer tracks. That does not
+retroactively excuse the fault — G0 as declared covers what was tracked at the time — but
+it does mean the same stoppage would cost one market rather than seven from here on.
+Nothing about that is a reason to relax the gate.
+
+**Standing rule, since this is now the third gate to have quietly answered the wrong
+question** (the band that read 05:30–11:00, the sweep that returned nothing, this):
+before any run of `gap_report` is treated as a G0 verdict, it must be the full command
+above, with both `--since` and `--band`. A verdict from a shorter invocation is not a
+verdict.
