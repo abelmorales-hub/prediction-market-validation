@@ -508,3 +508,64 @@ accrual. Widening the *universe* is a collection decision and may be amended; wi
 what H2 *forecasts* is a new `model_version` under Amendment 5's rule. Whichever is
 chosen must be declared before G0 opens, because a universe that grows mid-window is a
 different study.
+
+### Amendment 7 — 2026-09-07, the universe is series-driven, and G0 restarts
+
+Written hours after Amendment 6, which asked how to raise accrual. The answer turned out
+to be that accrual was never limited by the volume cut. It was limited by a broken
+sweep, and by the time it was found the sweep had stopped returning anything at all.
+
+**What broke.** `/markets?status=open` is ordered such that `KXMVECROSSCATEGORY-SHARD1-*`
+combo rows can occupy every page. On 2026-09-07 they occupied at least 12,000 consecutive
+rows — past the 25-page cap the client applies because the listing is unbounded. Every
+row the cap did fetch was a combo, the combo filter dropped all of them, and
+`list_open_markets` returned `[]`. No exception, no failure counter: the collector saw a
+venue with no open markets. `retain()` then held the already-admitted markets until they
+closed, so capture kept flushing snapshots while admission was dead. Two hours earlier the
+same call had returned 1,231 markets.
+
+Nothing was lost — the 11:30 band had already ended and the fix landed the same day — but
+the loss would have been the whole of 2026-09-08, discovered a day late at best.
+
+**Why the obvious alternatives fail.** Paging deeper is unbounded and the shard count
+grows. `/events?with_nested_markets=true` ignores `min_close_ts`/`max_close_ts` outright:
+6,000 events contained 9 KXHIGH markets.
+
+**The universe is now defined by series, not by a venue-wide scan.** Admission queries
+`/markets?series_ticker=…&status=open` for each series the catalogue lists in the target
+category, which is the only form of the query that cannot be crowded out. This is the
+same inversion that fixed `list_recently_resolved` on 2026-09-03, and the second time the
+identical mistake has cost this project data. **An empty sweep is now a counted failure**,
+because the expensive part of this outage was not the bug, it was the silence.
+
+The universe is therefore: *open markets in series the catalogue has already seen in
+Climate and Weather, closing within 30 hours, volume ≥ 1,000, capped at 400.* A series
+never catalogued is never collected. That is a real limitation, accepted deliberately: a
+fixed and stated universe is worth more than one that silently grows or empties.
+
+**This makes the universe bigger, not smaller.** Measured immediately after the fix: 292
+open weather markets within 30 h, 164 above the volume cut, 114 H2-eligible. The
+venue-wide sweep it replaces reached 113 markets above the cut **across all categories**.
+The 5,000-row cap had been truncating weather accrual all along, which is the honest
+explanation of §7's 20 observations a day.
+
+**Amendment 6's open question is answered, and the answer is to change nothing.**
+Lowering the volume cut from 1,000 to 0 raises H2-eligible markets from 99 to 114 — 15%,
+against a wider-spread sample whose mid is a worse estimate of the market's belief, and
+whose contamination would land on H4's territory rather than H2's. **`min_volume` stays
+at 1,000.** Widening what H2 forecasts remains a new `model_version` and is not taken.
+
+**G0 restarts at 2026-09-07.** The collector changed materially today; a 14-day
+demonstration that it holds a clean window cannot be assembled half from the old one.
+Earliest completion moves from 2026-09-17 to **2026-09-21**, and rows stamped before that
+are excluded from the G3 sample in place of the 2026-09-17 cut-off named in Amendment 5
+and §7. This costs four days and is the conservative reading; the alternative is claiming
+a clean window for a collector that did not exist for most of it.
+
+**The 715 stands; the date does not.** Amendment 6's pre-committed n is unchanged, and so
+is σ_d = 0.2020 — the disagreement it measures is a property of the model, not of how many
+markets are swept. But the ~20/day accrual behind its 2026-10-23 projection was measured
+through the broken sweep and is now meaningless. **No new completion date is declared
+here.** It will be measured over the first clean week after 2026-09-21 and recorded in its
+own amendment. Guessing it now, from one post-fix sample taken on the day of the fix,
+would be exactly the kind of number this document exists to prevent.
