@@ -627,3 +627,34 @@ question** (the band that read 05:30–11:00, the sweep that returned nothing, t
 before any run of `gap_report` is treated as a G0 verdict, it must be the full command
 above, with both `--since` and `--band`. A verdict from a shorter invocation is not a
 verdict.
+
+### Amendment 9 — 2026-09-07, New Orleans added to the station list
+
+The wider universe of Amendment 7 exposed a city H2 was declining for no stated reason.
+`KXHIGHTNOLA` — five rungs a day — had no `settlement_station`, so H2 returned nothing
+for it. Unlike `KXLOW`, which Amendment 5 declined on an argument, this was an omission:
+the station list simply did not contain New Orleans.
+
+**`CLIMSY`, New Orleans (Louis Armstrong), America/Chicago.** The code was read from the
+market's own `rules_primary` — *"the maximum temperature recorded at New Orleans
+(CLIMSY)"* — not inferred from the city name. That distinction is the whole reason the
+station list exists: `CLIMDW` is Midway and `CLINYC` is Central Park, and a wrong guess
+produces a confident forecast for the wrong place.
+
+**This is not a new `model_version`, and here is why.** Amendment 5 froze
+`src/models/weather.py` and `src/analysis/weather.py`, and both are untouched —
+`git log 782bb44..HEAD` over them is still empty. `src/ingest/stations.py` is ingest, not
+model: the forecasting logic is unchanged and now simply receives a station it previously
+lacked. But it *does* change which markets H2 answers, which is why it is declared here
+rather than done quietly, and why it is done before G0 completes rather than after.
+
+**Effect.** H2's coverage goes from 100 of 105 catalogued open `KXHIGH` markets to
+**106 of 106**, with `no_station_or_day` at zero. Roughly five observations a day, about
+5%. Small, and taken because the cost was one line whose only risk — the wrong station —
+was removed by reading the rules text instead of guessing.
+
+**One limitation, stated rather than discovered later.** New Orleans has no GEFS ensemble
+history before 2026-09-07, because the fetcher only collects stations in this list and
+ensembles cannot be backfilled. NOLA therefore contributes nothing to any window opening
+before that date. Since counted accrual does not begin until 2026-09-19 (Amendment 8),
+this costs the study nothing.

@@ -49,6 +49,10 @@ STATIONS: dict[str, Station] = {
         Station("CLIMDW", "Chicago, Midway", 41.7868, -87.7522, "America/Chicago"),
         Station("CLIMIA", "Miami International", 25.7959, -80.2870, "America/New_York"),
         Station("CLIMSP", "Minneapolis-St Paul", 44.8848, -93.2223, "America/Chicago"),
+        # Added 2026-09-07, read from the KXHIGHTNOLA rules text rather than guessed:
+        # "the maximum temperature recorded at New Orleans (CLIMSY)". Louisiana is
+        # Central, not Eastern.
+        Station("CLIMSY", "New Orleans, Louis Armstrong", 29.9934, -90.2581, "America/Chicago"),
         Station("CLINYC", "New York, Central Park", 40.7789, -73.9692, "America/New_York"),
         Station("CLIOKC", "Oklahoma City, Will Rogers", 35.3931, -97.6007, "America/Chicago"),
         Station("CLIPHL", "Philadelphia International", 39.8729, -75.2437, "America/New_York"),
