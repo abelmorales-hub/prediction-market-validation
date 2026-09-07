@@ -437,3 +437,74 @@ measured yet, and the planning assumption does not move until it is, in a dated 
 comparison of it against the market must not be inspected. The pre-G0 window is for the
 three items above and for nothing that looks like an answer. §4's single run at the
 pre-committed n stands.
+
+### Amendment 6 — 2026-09-07, σ_d measured without outcomes; n pre-committed
+
+**Supersedes the planning assumption of §6 and the accrual arithmetic of §7.**
+Amendment 5 promised σ_d "in a dated amendment" once H2 produced predictions that
+actually differ from the market's. It has produced 65 of them, all at T-24h, across 25
+event families, between 2026-09-05 04:59 UTC and 2026-09-07 07:59 UTC. This is that
+amendment.
+
+**σ_d = 0.2020.** Not 0.06, and not the 0.0176 artifact §6 warned about. It is 3.4× the
+planning assumption, and since n scales with σ², the required sample is **11× larger
+than §7 projected**.
+
+**How it was measured without touching an outcome.** Scoring the paired differences on
+resolved markets would have produced σ_d and, in the same breath, mean(d) — which is the
+G3 answer, and spending it early is precisely what §4's stopping rule forbids. So σ_d is
+derived from the (p̂, m) pairs alone, under the null that the market is calibrated,
+y ~ Bernoulli(m). With `d = (p̂ − y)² − (m − y)²` and `D = p̂ − m`:
+
+    E[d | m]   = D²                     a market that is exactly right costs H2 D²
+    Var[d | m] = 4 D² m (1 − m)         since d(y=1) − d(y=0) = −2D
+
+and the law of total variance gives σ_d = √(mean(Var[d|m]) + var(E[d|m])). The
+computation is `scripts/sigma_d.py`, whose query joins `predictions` to `markets` and
+**never to `outcomes`**; its `--selfcheck` verifies the closed form against a Monte Carlo
+of its own definition. The null supplies the outcome distribution, which is what a power
+calculation is entitled to assume. If the market is not calibrated the true σ_d differs —
+but that is the alternative, and planning under the null is the conservative direction.
+
+**Planning assumption is now σ_d = 0.20**, and the §6 effect-size grid is retired:
+
+| δ | nominal n | after ×3–×5 clustering |
+|---|--:|--:|
+| 0.020 | 801 | 2,403 – 4,005 |
+| 0.010 | 3,204 | 9,612 – 16,020 |
+| 0.005 | 12,816 | 38,448 – 64,080 |
+| **0.047** | **143** | **429 – 715** |
+
+**The primary effect size is 0.047, and the §7 target of δ = 0.010 is abandoned as
+unreachable.** 0.047 is `mean(D²)`: what H2 loses per observation if the market is
+exactly right. It is a property of the model's own disagreement — mean |p̂ − m| is 0.165,
+max 0.549 — not a number chosen from results, and it is the least this model can
+plausibly be moving. A model that bets 16 points away from the price is not testing a
+0.005 hypothesis, and §6's grid was written before any model with real disagreement
+existed. At 0.010, the honest answer is that Kalshi's daily weather ladders do not
+produce 10,000–16,000 T-24h observations on any timeline this project has; declaring that
+now, blind, is the point of a pre-declaration.
+
+**Pre-committed n: 715 T-24h observations in Climate and Weather, stamped on or after
+2026-09-17.** Nominal, not effective. Effective n is derived from the scored differences
+themselves (`clustered_bootstrap.effective_n` is a function of `d`), so triggering the
+single run on it would require looking at `d` to decide whether to look at `d`. A nominal
+count is outcome-blind: it can be checked daily without spending anything. 715 is the ×5
+end of the range, so it clears effective n = 143 even under worse clustering than the 2.6
+observations per family seen so far.
+
+**Accrual, measured rather than assumed.** 34, 21 and 10 observations on 2026-09-05/06/07
+— roughly 20 a day, in a collection band of six hours, from 113 tracked markets. 715
+observations is therefore about **36 collection days after G0 opens**, putting the single
+G3 run near **2026-10-23** rather than the "2–6 weeks" of §7. Nothing about that timeline
+is at risk from σ_d being wrong in the optimistic direction; it is at risk from days lost
+to sleep, which `gap_report` already counts.
+
+**Open, and to be settled before 2026-09-17, not after.** Accrual is the binding
+constraint now, and the universe filter is the only lever that is not a model change: the
+collector tracks 113 of 1,231 open markets after Amendment 3's volume ≥ 1,000 cut, and
+H2 declines a further 6–9 series per pass as unsupported. Widening either would raise
+accrual. Widening the *universe* is a collection decision and may be amended; widening
+what H2 *forecasts* is a new `model_version` under Amendment 5's rule. Whichever is
+chosen must be declared before G0 opens, because a universe that grows mid-window is a
+different study.
