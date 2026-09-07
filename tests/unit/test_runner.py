@@ -1,5 +1,6 @@
 """Runner: due-ness, crash resumption, and failures that get counted rather than lost."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -21,9 +22,16 @@ class FakeSource:
         self.bid = 0.60
 
     def list_open_markets(
-        self, *, closing_within_s: int | None = None, include_combos: bool = False
+        self,
+        *,
+        closing_within_s: int | None = None,
+        include_combos: bool = False,
+        series_tickers: Sequence[str] | None = None,
     ) -> list[Market]:
-        return self.markets
+        self.series_asked = series_tickers
+        if series_tickers is None:
+            return self.markets
+        return [m for m in self.markets if m.series_id in set(series_tickers)]
 
     def get_market(self, market_id: str) -> Market:
         return next(m for m in self.markets if m.market_id == market_id)
@@ -334,3 +342,37 @@ def test_retention_survives_a_market_dropping_out_across_refreshes(tmp_path: Pat
     first = runner.retain([_market("SLIPPY")], [_market("OTHER")], now)
     second = runner.retain(first, [_market("OTHER")], now)
     assert "SLIPPY" in {m.market_id for m in second}
+
+
+# -- admission drives off the series list, and an empty sweep is loud --------
+
+
+def test_universe_asks_only_for_the_declared_series(tmp_path: Path) -> None:
+    """Admission must be per series. A venue-wide sweep is the 2026-09-07 outage: combo
+    shards filled every page, the combo filter emptied the result, and nothing errored.
+    """
+    src = FakeSource([_market("A-1"), _market("B-1")])
+    src.markets[1] = src.markets[1].model_copy(update={"series_id": "B"})
+    runner = SnapshotRunner(src, tmp_path, series_tickers=["A"])
+
+    kept = runner.universe(30 * 3600)
+
+    assert src.series_asked == ["A"]
+    assert [m.market_id for m in kept] == ["A-1"]
+
+
+def test_an_empty_sweep_is_recorded_as_a_failure(tmp_path: Path) -> None:
+    """The outage was silent for a day because capture ran on retained markets while
+    admission was dead. An empty universe has to show up in the stats, not just the log.
+    """
+    runner = SnapshotRunner(FakeSource([]), tmp_path)
+
+    assert runner.universe(30 * 3600) == []
+    assert runner.stats.failures["universe:empty"] == 1
+
+
+def test_a_non_empty_sweep_records_no_failure(tmp_path: Path) -> None:
+    runner = SnapshotRunner(FakeSource([_market()]), tmp_path)
+
+    assert len(runner.universe(30 * 3600)) == 1
+    assert "universe:empty" not in runner.stats.failures

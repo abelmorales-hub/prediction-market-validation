@@ -11,6 +11,7 @@ venue module, never leaked past this file.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
@@ -144,7 +145,11 @@ class MarketDataSource(Protocol):
     """Read-only. No method here can place, sign, or cancel anything."""
 
     def list_open_markets(
-        self, *, closing_within_s: int | None = None, include_combos: bool = False
+        self,
+        *,
+        closing_within_s: int | None = None,
+        include_combos: bool = False,
+        series_tickers: Sequence[str] | None = None,
     ) -> list[Market]: ...
 
     def get_market(self, market_id: str) -> Market: ...

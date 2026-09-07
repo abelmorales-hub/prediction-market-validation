@@ -274,6 +274,23 @@ class Repo:
             )
             return [r["market_id"] for r in cur.fetchall()]
 
+    def series_in_category(self, category: str) -> list[str]:
+        """Series the catalogue has already seen in a category — the collector's work list.
+
+        The venue-wide open-market sweep cannot be trusted to reach anything (see
+        `KalshiSource.list_open_markets`), so admission is driven per series instead, and
+        this is where the series come from. It means the universe is what the catalogue
+        already knows: a series never catalogued is never collected. That is a real
+        limitation and the right trade, because a universe that quietly grows or empties
+        is worse than one that is fixed and stated.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "select distinct series_id from markets where category = %s order by series_id",
+                (category,),
+            )
+            return [r["series_id"] for r in cur.fetchall()]
+
     def outcome_ids(self, since: datetime, until: datetime) -> set[str]:
         """Markets we have an outcome for, by resolution time."""
         with self.conn.cursor() as cur:

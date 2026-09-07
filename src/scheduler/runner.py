@@ -60,12 +60,16 @@ class SnapshotRunner:
         min_volume: float = 1000.0,
         max_markets: int = 400,
         repo: Repo | None = None,
+        series_tickers: Sequence[str] | None = None,
     ) -> None:
         self.source = source
         self.root = root
         self.buffer_size = buffer_size
         self.min_volume = min_volume
         self.max_markets = max_markets
+        # None means the venue-wide sweep, which `list_open_markets` documents as
+        # unreliable. Every scheduled job passes an explicit list.
+        self.series_tickers = series_tickers
         # Optional: mirror the tracked universe into the Supabase catalogue. Without it
         # `markets` stays empty, the resolution watcher has nothing to join against, and
         # reconciliation cannot tell which resolved markets we were even watching.
@@ -193,7 +197,9 @@ class SnapshotRunner:
         This is a research-universe decision, not a technical one: raising min_volume
         buys cadence fidelity and costs sample size, and both feed the power calculation.
         """
-        markets = self.source.list_open_markets(closing_within_s=closing_within_s)
+        markets = self.source.list_open_markets(
+            closing_within_s=closing_within_s, series_tickers=self.series_tickers
+        )
         liquid = [m for m in markets if m.volume >= self.min_volume]
         liquid.sort(key=lambda m: -m.volume)
         kept = liquid[: self.max_markets]
@@ -204,6 +210,17 @@ class SnapshotRunner:
             self.min_volume,
             len(kept),
         )
+        # An empty sweep is not a quiet Sunday, it is the failure mode that cost
+        # 2026-09-07: combo shards filled every page of the venue-wide listing and the
+        # filter returned nothing. `retain` then keeps the already-admitted markets alive
+        # until they close, so capture looks healthy for a day while admission is dead.
+        # Counting it makes the supervisor's status say so on the day it happens.
+        if not markets:
+            self.stats.failures["universe:empty"] += 1
+            log.error(
+                "universe swept 0 open markets -- admission is dead, and capture will "
+                "drain as the retained markets close"
+            )
         if self.repo is not None and kept:
             try:
                 self.repo.upsert_markets(kept)

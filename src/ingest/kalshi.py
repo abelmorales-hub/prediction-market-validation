@@ -17,6 +17,7 @@ documentation. Things the docs and write-ups get wrong, verified live on 2026-09
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -191,14 +192,43 @@ class KalshiSource:
     # -- MarketDataSource -------------------------------------------------
 
     def list_open_markets(
-        self, *, closing_within_s: int | None = None, include_combos: bool = False
+        self,
+        *,
+        closing_within_s: int | None = None,
+        include_combos: bool = False,
+        series_tickers: Sequence[str] | None = None,
     ) -> list[Market]:
+        """Open markets, either venue-wide or one series at a time.
+
+        **Pass `series_tickers` for anything that must not silently return nothing.**
+        The venue-wide sweep is not reliable: `/markets?status=open` is ordered such that
+        `KXMVECROSSCATEGORY-SHARD1-*` combo rows can occupy every page, and on 2026-09-07
+        they occupied at least 12,000 consecutive rows — far past `_paged`'s 25-page cap,
+        which is itself there because the listing is unbounded. The combo filter below
+        then removes all of them and returns an empty list. Nothing errors: the caller
+        sees a venue with no open markets.
+
+        `/events?with_nested_markets=true` is not a way out. It ignores `min_close_ts` /
+        `max_close_ts` entirely, and 6,000 events contained 9 KXHIGH markets.
+
+        Filtering by `series_ticker` server-side is the only form of this query that
+        cannot be crowded out, which is the same lesson as `list_recently_resolved`:
+        drive the query from what the study is looking for, never from the whole venue
+        and a hope that it fits.
+        """
         params: dict[str, Any] = {"limit": 200, "status": "open"}
         if closing_within_s is not None:
             now = int(datetime.now(UTC).timestamp())
             params["min_close_ts"] = now
             params["max_close_ts"] = now + closing_within_s
-        rows = self._paged(params)
+
+        if series_tickers is None:
+            rows = self._paged(params)
+        else:
+            rows = []
+            for ticker in series_tickers:
+                rows += self._paged({**params, "series_ticker": ticker})
+
         cats = self.series_categories()
         out = []
         for row in rows:

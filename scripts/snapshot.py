@@ -51,6 +51,13 @@ def main() -> int:
     ap.add_argument("--min-volume", type=float, default=1000.0, help="liquidity floor")
     ap.add_argument("--max-markets", type=int, default=400, help="cap on tracked markets")
     ap.add_argument("--no-catalogue", action="store_true", help="skip the Supabase catalogue")
+    ap.add_argument(
+        "--category",
+        default="Climate and Weather",
+        help="admit only series the catalogue lists in this category. The venue-wide "
+        "sweep returns nothing once combo shards fill its pages, so admission is driven "
+        "per series; empty string restores the venue-wide sweep and its failure mode.",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(
@@ -75,6 +82,24 @@ def main() -> int:
         conn = connect(cfg.supabase_db_url)
         repo = Repo(conn)
 
+    # Admission is per series, so the series have to come from somewhere before the first
+    # sweep. Without a catalogue there is no work list and the only option left is the
+    # venue-wide sweep, which is why this refuses rather than quietly collecting nothing.
+    series: list[str] | None = None
+    if args.category:
+        if repo is None:
+            print(
+                f"--category {args.category!r} needs the catalogue; "
+                "pass --category '' to sweep venue-wide instead",
+                file=sys.stderr,
+            )
+            return 2
+        series = repo.series_in_category(args.category)
+        if not series:
+            print(f"catalogue lists no series in {args.category!r}", file=sys.stderr)
+            return 2
+        logging.info("admitting from %d catalogued %s series", len(series), args.category)
+
     with KalshiSource(
         cfg.kalshi_base_url,
         cfg.http_timeout_s,
@@ -87,6 +112,7 @@ def main() -> int:
             min_volume=args.min_volume,
             max_markets=args.max_markets,
             repo=repo,
+            series_tickers=series,
         )
         minutes = args.minutes
         if args.until:
