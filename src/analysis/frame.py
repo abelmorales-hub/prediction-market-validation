@@ -13,7 +13,7 @@ cluster is the family, never the row and never the market.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +21,46 @@ import numpy as np
 from numpy.typing import NDArray
 
 FloatArray = NDArray[np.float64]
+
+# Models whose score is a pre-committed single look, and so must never appear in a report
+# by accident. H2 is frozen at 782bb44 and gets exactly one G3 reading; a "quick sanity
+# check" that happens to include it spends that reading without anyone deciding to.
+#
+# Duplicated from `src.analysis.weather.MODEL_VERSION` on purpose: importing it here would
+# drag `src.storage` and `src.models` into what is otherwise a pure pivot over dicts.
+# `test_frozen_models_matches_the_declared_model_version` fails if the two ever drift.
+FROZEN_MODELS = frozenset({"gefs_ensemble_raw"})
+
+
+def resolve_models(rows: Sequence[dict[str, Any]], selected: Sequence[str] | None) -> set[str]:
+    """Which model_versions a report may show, given an explicit `--model` selection.
+
+    Default (`selected` empty) is every model present *except* the frozen ones, so the
+    unguarded command is the safe one. Naming a frozen model is allowed -- that is what
+    the G3 run does -- but it has to be typed, which makes it a decision and leaves it in
+    the shell history.
+
+    An unknown name raises rather than silently scoring nothing: a typo would otherwise
+    produce an empty frame, which reads exactly like "nothing has resolved yet".
+    """
+    available = {str(r["model_version"]) for r in rows}
+    if not selected:
+        keep = available - FROZEN_MODELS
+        if available and not keep:
+            # Otherwise the caller gets an empty frame and reports "nothing has resolved
+            # yet", which is false and is this project's recurring failure: a check
+            # quietly answering an easier question than the one asked.
+            raise ValueError(
+                f"every model present is frozen ({', '.join(sorted(available))}); "
+                "name one with --model to spend its look deliberately"
+            )
+        return keep
+    unknown = sorted(set(selected) - available)
+    if unknown:
+        raise ValueError(
+            f"unknown model_version {', '.join(unknown)}; present: {', '.join(sorted(available))}"
+        )
+    return set(selected)
 
 
 @dataclass(frozen=True)
@@ -53,21 +93,37 @@ class Frame:
         )
 
 
-def build_frame(rows: Sequence[dict[str, Any]], drop_disputed: bool = True) -> Frame:
+def build_frame(
+    rows: Sequence[dict[str, Any]],
+    drop_disputed: bool = True,
+    models: Collection[str] | None = None,
+) -> Frame:
     """Pivot `scored_pairs` output into aligned arrays.
 
     A disputed resolution is excluded by default: its outcome is exactly the thing under
     question, and scoring against a contested answer measures the dispute, not the
     forecast. The venue exposes no dispute field today, so this is currently a no-op that
     exists so the decision is recorded rather than rediscovered later.
+
+    `models` restricts which model_versions are pivoted; `None` keeps every one present.
+    The filter runs *before* the completeness rule below, not after, and that ordering is
+    the whole point: dropping a model afterwards would leave the frame trimmed to the rows
+    that model happened to cover, so excluding a sparse model would silently shrink the
+    sample the remaining ones are scored on. Filtering first means a narrower selection can
+    only ever keep more rows. Use `resolve_models` to build the set from a CLI flag.
     """
     keyed: dict[tuple[str, str], dict[str, Any]] = {}
-    models: set[str] = set()
+    present: set[str] = set()
     for r in rows:
         if drop_disputed and r.get("was_disputed"):
             continue
         outcome = r["outcome"]
         if outcome is None:
+            continue
+        # Before the slot is created, so an excluded model cannot anchor the key's `ts`
+        # and `market_mid`. The anchor must be the earliest emission among the models
+        # actually being scored.
+        if models is not None and str(r["model_version"]) not in models:
             continue
         key = (r["market_id"], r["horizon_label"])
         slot = keyed.setdefault(
@@ -91,10 +147,10 @@ def build_frame(rows: Sequence[dict[str, Any]], drop_disputed: bool = True) -> F
         if r["ts"] != slot["ts"]:
             continue
         slot["p"][str(r["model_version"])] = float(r["p_hat"])
-        models.add(str(r["model_version"]))
+        present.add(str(r["model_version"]))
 
-    complete = [s for s in keyed.values() if set(s["p"]) == models]
-    order = sorted(models)
+    complete = [s for s in keyed.values() if set(s["p"]) == present]
+    order = sorted(present)
     if not complete:
         return Frame(
             forecasts={m: _empty() for m in order},

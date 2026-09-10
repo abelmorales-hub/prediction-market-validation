@@ -4,6 +4,11 @@ Run: uv run python -m scripts.score [--out reports/validation.md] [--horizon T-1
 
 Prints and writes markdown. If nothing has resolved yet it says so plainly and exits 0:
 an empty result is a true statement about the data, not a failure of the script.
+
+**Frozen models are withheld unless named.** H2 gets one pre-committed G3 reading, and
+this command used to spend it on anyone who ran it: `build_frame` picks up every
+model_version in the table, so an unfiltered run printed H2's BSS. Pass
+`--model gefs_ensemble_raw` to take that look deliberately. See docs/pre_declaration.md.
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.analysis.frame import build_frame
+from src.analysis.frame import FROZEN_MODELS, build_frame, resolve_models
 from src.config import get_settings
 from src.scoring.bootstrap import required_n
 from src.scoring.report import build_report
@@ -25,6 +30,14 @@ def main() -> int:
     ap.add_argument("--out", default="reports/validation.md")
     ap.add_argument("--horizon", default=None, help="restrict to one horizon label")
     ap.add_argument("--n-iter", type=int, default=10_000)
+    ap.add_argument(
+        "--model",
+        action="append",
+        metavar="MODEL_VERSION",
+        help="score only this model_version; repeatable. Default: every model except the "
+        f"frozen ones ({', '.join(sorted(FROZEN_MODELS))}), whose score is a single "
+        "pre-committed look",
+    )
     args = ap.parse_args()
 
     cfg = get_settings()
@@ -35,7 +48,17 @@ def main() -> int:
     with connect(cfg.supabase_db_url) as conn:
         rows = Repo(conn).scored_pairs()
 
-    frame = build_frame(rows)
+    try:
+        models = resolve_models(rows, args.model)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+    withheld = sorted({str(r["model_version"]) for r in rows} - models)
+    if withheld:
+        print(f"withheld: {', '.join(withheld)}  (name it with --model to include it)\n")
+
+    frame = build_frame(rows, models=models)
     if args.horizon:
         frame = frame.restricted_to(args.horizon)
 
