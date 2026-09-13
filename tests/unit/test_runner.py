@@ -63,6 +63,23 @@ def _market(market_id: str = "A-1", close: datetime = CLOSE, volume: float = 500
     )
 
 
+def _open_market(market_id: str = "A-1", volume: float = 5000.0) -> Market:
+    """A market still open relative to the *real* clock, for the `run_forever` tests.
+
+    Every other test here injects `now=`, so a fixed `CLOSE` is exactly what they want.
+    `run_forever` is the one path that reads `datetime.now(UTC)`: `retain()` keeps only
+    markets with `close_time > now`, so a fixture pinned to a past instant leaves the
+    universe empty and the loop sweeps nothing -- while still passing any assertion that
+    does not look at `polled`. This suite went red on 2026-09-11, the day after `CLOSE`,
+    asserting that the runner does nothing, and two neighbouring tests had quietly
+    stopped exercising a sweep at all without failing.
+
+    Thirty hours out is the collector's own admission horizon and sits in the sparse
+    region, so the first tick is due and later ones are correctly skipped.
+    """
+    return _market(market_id, close=datetime.now(UTC) + timedelta(hours=30), volume=volume)
+
+
 def test_first_poll_of_an_unseen_market_is_always_due(tmp_path: Path) -> None:
     src = FakeSource([_market()])
     runner = SnapshotRunner(src, tmp_path)
@@ -198,7 +215,7 @@ def test_tick_absorbs_the_sweeps_own_duration(tmp_path: Path) -> None:
     """Regression, first overnight run: sleeping a fixed `tick_s` *after* the sweep makes
     every period tick_s + sweep_duration. A 60 s tick with a 10 s sweep sampled every
     70 s, so each dense sample landed progressively later than the horizon it brackets."""
-    runner = SnapshotRunner(FakeSource([_market()]), tmp_path)
+    runner = SnapshotRunner(FakeSource([_open_market()]), tmp_path)
     # Loop top, then 10 s later when the sleep is computed; next tick starts at +60.
     clock = iter([0.0, 10.0, 60.0, 70.0, 120.0])
     slept: list[float] = []
@@ -208,7 +225,7 @@ def test_tick_absorbs_the_sweeps_own_duration(tmp_path: Path) -> None:
 
 def test_a_sweep_that_overruns_its_tick_never_sleeps_negative(tmp_path: Path) -> None:
     """Falling behind is for the gap report to surface, not for the grid to absorb."""
-    runner = SnapshotRunner(FakeSource([_market()]), tmp_path)
+    runner = SnapshotRunner(FakeSource([_open_market()]), tmp_path)
     clock = iter([0.0, 95.0, 95.0])
     slept: list[float] = []
     runner.run_forever(tick_s=60, max_ticks=2, sleep=slept.append, clock=lambda: next(clock))
@@ -226,7 +243,7 @@ def test_a_sparse_step_does_not_step_over_a_dense_window(tmp_path: Path) -> None
 
 
 def test_run_forever_stops_after_max_ticks_and_flushes_each_one(tmp_path: Path) -> None:
-    src = FakeSource([_market(volume=5000)])
+    src = FakeSource([_open_market(volume=5000)])
     runner = SnapshotRunner(src, tmp_path)
     slept: list[float] = []
     stats = runner.run_forever(tick_s=60, max_ticks=3, sleep=slept.append)
