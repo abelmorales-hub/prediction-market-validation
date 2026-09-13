@@ -14,7 +14,16 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import get_settings
-from src.scheduler.gaps import coverage, find_gaps, parse_band, parse_since
+from src.scheduler.gaps import (
+    REQUIRED_CLEAN_DAYS,
+    BandDay,
+    band_days,
+    coverage,
+    find_gaps,
+    g0_status,
+    parse_band,
+    parse_since,
+)
 from src.storage.duckdb_views import connect
 
 
@@ -87,19 +96,6 @@ def main() -> int:
             f"{args.days}d only and is NOT the G0 gate. G0 is a property of the\n"
             "      whole analysis window -- pass --since <window start> to test it.\n"
         )
-    print(f"snapshots: {len(rows)}  markets: {len({r[0] for r in rows})}\n")
-    if not rows:
-        print("No snapshots in range. Nothing to check.")
-        return 0
-
-    typed = [(str(a), b, c) for a, b, c in rows]
-    stats = coverage(typed)
-    print(
-        f"dense-window samples: {int(stats['dense_samples'])} "
-        f"across {int(stats['dense_markets'])} markets "
-        f"(capture rate {stats.get('capture_rate', 1.0):.1%})\n"
-    )
-
     band = None
     if args.band:
         try:
@@ -108,7 +104,47 @@ def main() -> int:
             print(f"--band: {exc}", file=sys.stderr)
             return 2
 
-    gaps = find_gaps(typed, tolerance=args.tolerance, band=band, tz=ZoneInfo(args.tz))
+    print(f"snapshots: {len(rows)}  markets: {len({r[0] for r in rows})}\n")
+    typed = [(str(a), b, c) for a, b, c in rows]
+    tz = ZoneInfo(args.tz)
+
+    # Amendment 10's ledger, and it runs before anything derived from the rows. Every
+    # other number below is conditional on rows existing; this is the only check that
+    # fires when they do not.
+    ledger: list[BandDay] = []
+    status = None
+    if band is not None:
+        ledger = band_days(typed, since, datetime.now(UTC), band, tz)
+        status = g0_status(ledger)
+        lost = [d for d in ledger if not d.clean]
+        print(f"band-days judged: {len(ledger)}  clean: {status.clean}  lost: {len(lost)}")
+        for day in lost:
+            print(f"  LOST  {day.day}  no in-band snapshot at all")
+        if status.restarted_on is not None:
+            print(f"  clock restarted {status.restarted_on} -- two consecutive lost days")
+        if status.met:
+            print(f"  {REQUIRED_CLEAN_DAYS} clean band-days reached on {status.completed_on}")
+        else:
+            print(
+                f"  {status.clean}/{REQUIRED_CLEAN_DAYS} clean band-days "
+                f"over {status.elapsed} elapsed"
+            )
+        print()
+
+    if not rows:
+        # Never 0. This used to print "nothing to check" and pass, which is the same bug
+        # as the zero-row day it failed to catch: absence of data read as absence of fault.
+        print("No snapshots in range. That is a failure, not a clean window.")
+        return 1
+
+    stats = coverage(typed)
+    print(
+        f"dense-window samples: {int(stats['dense_samples'])} "
+        f"across {int(stats['dense_markets'])} markets "
+        f"(capture rate {stats.get('capture_rate', 1.0):.1%})\n"
+    )
+
+    gaps = find_gaps(typed, tolerance=args.tolerance, band=band, tz=tz)
     critical = [g for g in gaps if g.severity == "CRITICAL"]
     missed = [g for g in gaps if g.severity == "MISSED"]
 
@@ -127,6 +163,16 @@ def main() -> int:
     print(f"MISSED   (sparse region)         : {len(missed)}")
     if critical:
         print("\nG0 NOT MET: a prediction horizon may have gone unsampled.")
+        return 1
+    if ledger and not ledger[-1].clean:
+        # The alarm fires on the day it happens, which is the whole complaint about
+        # 2026-09-13: the ledger records it either way, but only the exit code reaches
+        # `Get-ScheduledTaskInfo`, and that is where a dead morning has to be visible.
+        print(
+            f"\nG0 NOT CLEAN: {ledger[-1].day} captured nothing in-band. Under "
+            f"Amendment 10 one lost day does not restart the clock -- it does not count "
+            f"toward the {REQUIRED_CLEAN_DAYS} either, and a second in a row would."
+        )
         return 1
     print("\nG0 clean: no gaps around the prediction horizons.")
     return 0

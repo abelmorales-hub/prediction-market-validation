@@ -5,15 +5,18 @@ The trap this guards against: applying ">15 min" literally flags every ordinary
 one gap that matters — a hole across a prediction horizon — is invisible in the noise.
 """
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from src.scheduler.gaps import (
+    BandDay,
+    band_days,
     classify,
     coverage,
     find_gaps,
+    g0_status,
     in_band,
     parse_band,
     parse_since,
@@ -230,3 +233,82 @@ def test_parse_band_round_trip() -> None:
     assert parse_band("05:30-11:00") == (time(5, 30), time(11, 0))
     with pytest.raises(ValueError):
         parse_band("05:30")
+
+
+# ------------------------------------------------- band-day ledger (Amendment 10)
+
+
+OPERATIVE = (time(5, 30), time(11, 30))
+
+
+def local(day: date, hh: int, mm: int = 0) -> datetime:
+    return datetime.combine(day, time(hh, mm), tzinfo=MADRID)
+
+
+def sampled(day: date) -> tuple[str, datetime, datetime]:
+    """One in-band sample of that day's own market. Each band-day tracks a different set
+    of markets -- they close within 30 h of admission -- which is exactly why a lost day
+    leaves no consecutive pair for `find_gaps` to measure."""
+    ts = local(day, 8)
+    return (f"M-{day}", ts, ts + timedelta(hours=20))
+
+
+def ledger_of(pattern: str) -> list[BandDay]:
+    """`.` a clean day, `x` a lost one, one character per day from 2026-09-05."""
+    start = date(2026, 9, 5)
+    return [BandDay(start + timedelta(days=i), 1 if c == "." else 0) for i, c in enumerate(pattern)]
+
+
+def test_a_day_with_no_in_band_snapshot_is_lost() -> None:
+    """Regression, 2026-09-13. The collector wrote nothing for a whole band and
+    `find_gaps` saw nothing wrong, because a gap needs two consecutive snapshots and
+    there were none. The ledger counts days that should exist instead."""
+    days = [date(2026, 9, 11), date(2026, 9, 12), date(2026, 9, 13)]
+    rows = [sampled(d) for d in days[:2]]
+    got = band_days(rows, local(days[0], 0), local(days[-1], 12), OPERATIVE, MADRID)
+    assert [d.day for d in got] == days
+    assert [d.clean for d in got] == [True, True, False]
+    assert find_gaps(rows, band=OPERATIVE, tz=MADRID) == [], "the old check stays silent"
+
+
+def test_a_band_still_open_is_not_judged_lost() -> None:
+    """Run mid-morning, today has not had its chance yet. Calling it lost would make the
+    gate fail every time it is run before 11:30."""
+    day = date(2026, 9, 13)
+    assert band_days([], local(day, 0), local(day, 8), OPERATIVE, MADRID) == []
+
+
+def test_a_band_that_opened_before_the_window_is_not_judged() -> None:
+    """`--since` lands mid-band: those hours were never this window's to collect."""
+    day = date(2026, 9, 5)
+    assert band_days([], local(day, 9), local(day, 23), OPERATIVE, MADRID) == []
+
+
+def test_one_lost_day_does_not_restart_the_clock() -> None:
+    """The whole point of Amendment 10: a lost day costs a day, not the window."""
+    status = g0_status(ledger_of("........x"))
+    assert status.restarted_on is None
+    assert status.clean == 8, "the lost day buys no credit"
+    assert status.elapsed == 9
+    assert not status.met
+
+
+def test_two_consecutive_lost_days_restart_the_clock() -> None:
+    """Not recovering unattended is the operational failure G0 exists to catch."""
+    status = g0_status(ledger_of("........xx..."))
+    assert status.restarted_on == date(2026, 9, 14)
+    assert status.clean == 3, "counting resumes after the restart, not before"
+
+
+def test_fourteen_clean_days_around_one_lost_day_meets_g0() -> None:
+    status = g0_status(ledger_of("........x" + "." * 6))
+    assert status.met
+    assert status.completed_on == date(2026, 9, 19), "one day later than an unbroken run"
+
+
+def test_the_span_expiring_short_of_fourteen_restarts_the_clock() -> None:
+    """Alternating loss never puts two lost days together, but never accrues fourteen
+    either. Without the span the counter would crawl forward for ever."""
+    status = g0_status(ledger_of(".x" * 9))
+    assert status.restarted_on is not None
+    assert not status.met

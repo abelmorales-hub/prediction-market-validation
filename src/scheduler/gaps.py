@@ -15,7 +15,7 @@ G0 in the design doc ("no gaps >15 min") is the CRITICAL count. It must be zero.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from src.scheduler.cadence import DENSE, SPARSE, WINDOWS, in_dense_window
@@ -23,6 +23,12 @@ from src.scheduler.cadence import DENSE, SPARSE, WINDOWS, in_dense_window
 # A tick is scheduled every `interval`, but a sweep over hundreds of markets, retries and
 # adaptive pacing all add jitter. Only a gap beyond this multiple is called a miss.
 TOLERANCE = 2.5
+
+# Amendment 10. Fourteen clean band-days is unchanged from Amendment 3; what changed is
+# that they need not be fourteen consecutive calendar days, so an outage costs the day it
+# took rather than the whole window.
+REQUIRED_CLEAN_DAYS = 14
+MAX_SPAN_DAYS = 18
 
 
 @dataclass(frozen=True)
@@ -207,6 +213,129 @@ def in_band(ts: datetime, band: tuple[time, time], tz: ZoneInfo) -> bool:
         return start <= local.replace(tzinfo=None) <= end
     # A band crossing midnight is two intervals, not one.
     return local.replace(tzinfo=None) >= start or local.replace(tzinfo=None) <= end
+
+
+@dataclass(frozen=True)
+class BandDay:
+    """One local day's in-band capture -- the unit Amendment 10 counts."""
+
+    day: date
+    samples: int
+
+    @property
+    def clean(self) -> bool:
+        return self.samples > 0
+
+
+def band_days(
+    rows: list[tuple[str, datetime, datetime]],
+    since: datetime,
+    now: datetime,
+    band: tuple[time, time],
+    tz: ZoneInfo,
+) -> list[BandDay]:
+    """Ledger of local days whose band lies wholly inside [since, now].
+
+    This is the check `find_gaps` structurally cannot make, and the reason this function
+    exists. A gap is the interval *between* two consecutive snapshots of one market, so a
+    day on which nothing was captured produces no pairs, no gaps, and no complaint: on
+    2026-09-13 the collector wrote zero rows for a whole band and `gap_report` printed
+    "G0 clean" with a byte-identical log to the day before. Counting days that should
+    exist is the only way a total outage is visible at all; counting holes between rows
+    that do exist can never see one.
+
+    Only whole, closed bands are judged, and a day with even one in-band sample is clean
+    here -- its holes are `find_gaps`' business. The two checks are complementary and
+    neither subsumes the other.
+
+    The ledger names a day by its local calendar date, which is correct while the band
+    does not cross midnight (05:30-11:30 does not). A crossing band would need the
+    post-midnight samples credited to the day the band opened, and this does not do that.
+    """
+    captured: dict[date, int] = {}
+    for _, ts, _ in rows:
+        if in_band(ts, band, tz):
+            local = ts.astimezone(tz).date()
+            captured[local] = captured.get(local, 0) + 1
+
+    start_t, end_t = band
+    ledger: list[BandDay] = []
+    day = since.astimezone(tz).date()
+    last = now.astimezone(tz).date()
+    while day <= last:
+        opens = datetime.combine(day, start_t, tzinfo=tz)
+        closes = datetime.combine(day, end_t, tzinfo=tz)
+        if start_t > end_t:
+            closes += timedelta(days=1)
+        # A band still open cannot be called lost, and one that opened before `since` was
+        # never this window's to collect. Judging either produces a phantom lost day.
+        if opens >= since and closes <= now:
+            ledger.append(BandDay(day, captured.get(day, 0)))
+        day += timedelta(days=1)
+    return ledger
+
+
+@dataclass(frozen=True)
+class G0Status:
+    clean: int
+    lost: tuple[date, ...]
+    elapsed: int
+    met: bool
+    restarted_on: date | None
+    completed_on: date | None
+
+
+def g0_status(
+    ledger: list[BandDay],
+    required: int = REQUIRED_CLEAN_DAYS,
+    span: int = MAX_SPAN_DAYS,
+) -> G0Status:
+    """Amendment 10's verdict: `required` clean band-days inside any `span` days.
+
+    Two conditions still restart the clock, and both exist to stop the counter
+    degenerating into "fourteen days on which something happened":
+
+      * **two consecutive lost days** -- the rig did not recover unattended, which is
+        precisely the operational property G0 certifies;
+      * **the span elapsing** with fewer than `required` clean days -- attrition slow
+        enough to hide is still attrition.
+
+    A single lost day does neither. It costs one day of credit, and that proportionality
+    is the whole point of the amendment: under the old all-or-nothing rule every outage
+    cost two weeks out of the one-month abandonment budget, so a sound study would have
+    been abandoned for its network rather than its statistics.
+    """
+    start = 0
+    restarted_on: date | None = None
+    for i, day in enumerate(ledger):
+        # `i > start` matters: the day before an attempt's first day belongs to the
+        # previous attempt, and pairing across that boundary would restart a clock that
+        # has only just started.
+        if i > start and not day.clean and not ledger[i - 1].clean:
+            start, restarted_on = i + 1, day.day
+            continue
+        window = ledger[start : i + 1]
+        clean = sum(1 for d in window if d.clean)
+        if clean >= required:
+            return G0Status(
+                clean=clean,
+                lost=tuple(d.day for d in window if not d.clean),
+                elapsed=len(window),
+                met=True,
+                restarted_on=restarted_on,
+                completed_on=day.day,
+            )
+        if len(window) >= span:
+            start, restarted_on = i + 1, day.day
+    window = ledger[start:]
+    return G0Status(
+        clean=sum(1 for d in window if d.clean),
+        lost=tuple(d.day for d in window if not d.clean),
+        elapsed=len(window),
+        met=False,
+        restarted_on=restarted_on,
+        completed_on=None,
+    )
 
 
 def parse_band(text: str) -> tuple[time, time]:

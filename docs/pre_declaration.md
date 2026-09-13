@@ -658,3 +658,113 @@ history before 2026-09-07, because the fetcher only collects stations in this li
 ensembles cannot be backfilled. NOLA therefore contributes nothing to any window opening
 before that date. Since counted accrual does not begin until 2026-09-19 (Amendment 8),
 this costs the study nothing.
+
+### Amendment 10 — 2026-09-13, G0 counts clean band-days, not consecutive calendar days
+
+**This amendment loosens a gate after that gate failed, which is the move pre-declaration
+exists to prevent. It is written first so it cannot be read as anything else.** What
+follows is the argument for doing it anyway, and the price paid for it. Amendment 8
+revised a G0 judgement too, but revised it *toward* rigour; this goes the other way, and
+that asymmetry is the reason for the length of this entry.
+
+**What happened.** On 2026-09-13 the machine woke for the band at 05:29:31 and came up
+with no network. Every scheduled tick for six hours died identically —
+`psycopg.OperationalError: failed to resolve host 'aws-1-eu-west-1.pooler.supabase.com'`,
+125 of them across `pmv-snapshot`, `pmv-emit`, `pmv-gefs` and `pmv-resolutions`. A
+DNS-Client timeout at 05:30:08 names an unrelated host, so this was the machine's
+connection and not anything the study owns. No `data/snapshots/date=2026-09-13/`
+directory was ever created. Predictions and GEFS ensembles for that day are gone
+permanently; resolutions are backfillable.
+
+**`pmv-g0-check` reported "G0 clean", exit 0, that morning.** `logs/g0-20260913.log` came
+out byte-identical to the previous day's but for the header timestamp. That is the
+finding that matters more than the outage.
+
+**Why the gate could not see it, which is structural and not a misconfiguration.** A gap
+is the interval *between two consecutive snapshots of one market*. A day that captures
+nothing produces no snapshots, therefore no pairs, therefore no gaps. `find_gaps` can
+only find holes between rows that exist; it is constitutionally unable to notice rows
+that do not. `gap_report.py` compounded it by returning **0** on an empty range with "No
+snapshots in range. Nothing to check." **Fourth gate in this study to quietly answer an
+easier question than the one declared**, after the band that read 05:30–11:00, the sweep
+that returned nothing, and the `--days 1` default. The signal was sitting in plain sight
+and unused: `Get-ScheduledTaskInfo` showed `LastTaskResult = 1` on all four collector
+tasks.
+
+**The distinction the old rule did not make.** Amendment 3 fixed G0 as "no CRITICAL gap
+inside the band, for fourteen consecutive days", and Amendment 8 restated what it
+certifies: the machine wakes, the tasks fire, ticks land in-band. Under that text
+2026-09-13 is a fault and the clock restarts to 2026-09-14, completing 2026-09-27. But
+the two faults this study has seen are not the same kind of thing:
+
+| | 2026-09-04 | 2026-09-13 |
+|---|---|---|
+| what happened | stopped 57 min before band close | zero rows for the whole band |
+| rows in the sample from that day | yes, with a hole near horizons | none |
+| can it corrupt an observation? | **yes** — a forecast paired with a stale price | no — nothing exists to corrupt |
+| what it costs | integrity of the window | *n*, and nothing else |
+
+§7 calls G0 "trustworthiness of the window". A day contributing zero rows cannot make the
+window untrustworthy; it can only make it shorter. A partial stop can, and did, which is
+why Amendment 8's restart was right and this one is not automatic.
+
+**The decisive argument is the abandonment clause.** §4 pauses the project if G0 cannot
+be held for fourteen consecutive days *within a month*. Two faults in ten days, from
+unrelated causes — a `-Force` install, a NIC that did not come back from S3 — is the
+observed rate, and each all-or-nothing restart spends half the month. On that evidence
+the old rule abandons a methodologically sound study for its home network rather than for
+anything about its statistics. A gate that fails for reasons unrelated to what it
+certifies is the same defect as a gate that passes for them.
+
+**G0 is redefined, for the second and final time.** From "no CRITICAL gap inside the
+band, for fourteen **consecutive days**" to:
+
+> **Fourteen clean band-days within any eighteen-day span, with no CRITICAL gap on any of
+> them.** A *band-day* is clean when at least one snapshot lands inside 05:30–11:30
+> Europe/Madrid and no CRITICAL gap is reported for it; lost otherwise. A lost day does
+> not count toward the fourteen and does not restart the clock.
+
+**Two conditions still restart the clock**, so the counter cannot degenerate into
+"fourteen days on which something happened":
+
+1. **Two consecutive lost days.** The rig failing to recover unattended is precisely the
+   operational property G0 certifies, and one bad morning followed by another is that
+   failure rather than bad luck.
+2. **The eighteen-day span elapsing with fewer than fourteen clean days.** Attrition slow
+   enough to hide is still attrition.
+
+A CRITICAL gap voids the window exactly as before. Nothing here softens that, and it is
+worth being explicit: **this changes only the treatment of days with no data, never of
+days with bad data.**
+
+**Implemented, not merely declared.** `src/scheduler/gaps.py` gains `band_days()` — a
+ledger of every local day whose band lies wholly inside the window, counting days that
+should exist rather than holes between rows that do — and `g0_status()`, which applies the
+rule above. `scripts/gap_report.py` prints the ledger before anything derived from the
+rows, because every other number in that report is conditional on rows existing and this
+is the only check that fires when they do not. Its empty-range path now returns **1**. The
+report exits 1 when the most recently judged band-day is lost, so a dead morning reaches
+`Get-ScheduledTaskInfo` the same day instead of three days later. `g0_check.ps1` needed no
+change; it already propagates the exit code. Seven cases in `tests/unit/test_gaps.py`,
+including the 09-13 shape, assert that `find_gaps` stays silent on it while the ledger
+does not. **A rule this document declares and no code checks would have been the fifth
+gate answering an easier question.**
+
+**Operative dates.** The ledger over 2026-09-05 → 2026-09-13 reads eight clean, one lost
+(2026-09-13), no restart. Fourteen clean band-days are therefore reached on **2026-09-19**
+if every remaining day is clean, and rows stamped before **2026-09-20** are excluded from
+the G3 sample — one day later than Amendment 8's 2026-09-19. **That one day is the entire
+schedule effect of this amendment**, against the two weeks a restart would have cost.
+
+**What this does not touch.** H2's frozen files (`git log 782bb44..HEAD` over
+`src/models/weather.py` and `src/analysis/weather.py` is still empty), `model_version`,
+Amendment 6's n = 715, σ_d = 0.2020, the effect size 0.047, the band, the universe, and
+the single-G3-run stopping rule. No outcome was read in the course of writing this.
+
+**The standing objection, recorded so it travels with the result.** This was written after
+seeing the gate fail, by the party the gate constrains. The mitigations are that it lands
+before G0 completes and before any counted accrual, that it tightens detection in the same
+change as it loosens the reset, that the loosening is bounded by two explicit restart
+conditions, and that the data-integrity criterion is untouched. Anyone weighing the final
+result should read this amendment and Amendment 8 together and judge for themselves
+whether the fourteen days were earned.
