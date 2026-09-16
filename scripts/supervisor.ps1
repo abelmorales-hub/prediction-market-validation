@@ -95,7 +95,13 @@ $Tasks = @{
         # no matter when the instance started.
         Arguments   = "-m scripts.snapshot --until $BandEnd"
         IntervalMin = $SnapshotIntervalMin
-        TimeLimit   = (New-TimeSpan -Hours ($BandDurationH + 0.5))
+        # -Hours is [int]. `-Hours ($BandDurationH + 0.5)` rounded 6.5 to 6, so the half
+        # hour of grace was silently zero and the limit landed on 11:30:02 -- the exact
+        # moment the tick budget runs out. Task Scheduler killed the snapshotter mid-exit
+        # every day: no final flush(), no stats line in the log, LastTaskResult stuck at
+        # 1. That result code is the signal Amendment 10 records as sitting unused during
+        # the 09-13 outage, and a permanent 1 cannot flag anything.
+        TimeLimit   = (New-TimeSpan -Hours $BandDurationH -Minutes 30)
     }
     emit = @{
         Name        = 'pmv-emit'
@@ -230,6 +236,15 @@ function Invoke-SleepIfIdle {
 
 function Install-Tasks {
     if (-not (Test-Path $PythonExe)) { throw "venv python not found at $PythonExe -- run uv sync first" }
+
+    # The snapshotter runs the whole band, so its kill timer must outlast the band or
+    # Task Scheduler ends the process instead of letting it exit. Asserted rather than
+    # trusted: the previous expression truncated to exactly the band length and nothing
+    # said so for twelve days.
+    if ($Tasks.snapshot.TimeLimit -le (New-TimeSpan -Hours $BandDurationH)) {
+        throw ("snapshot TimeLimit {0} does not outlast the {1}h band" -f
+               $Tasks.snapshot.TimeLimit, $BandDurationH)
+    }
 
     foreach ($jobName in $Tasks.Keys) {
         $spec = $Tasks[$jobName]
