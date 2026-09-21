@@ -25,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from src.ingest.base import Book, BookLevel, Market, PricePoint, Resolution
-from src.ingest.http import DiskCache, PacedClient
+from src.ingest.http import TICK_ATTEMPTS, DiskCache, PacedClient
 from src.ingest.stations import station_for
 
 SETTLED_RESULTS = {"yes": 1, "no": 0}
@@ -256,7 +256,12 @@ class KalshiSource:
         return m.to_market(self.series_categories().get(m.series_ticker) or None)
 
     def get_book(self, market_id: str, *, depth: int = 100) -> Book:
-        body = self._http.get_json(f"/markets/{market_id}/orderbook", {"depth": depth})
+        # The one call on the dense sweep's critical path, so it takes the short retry
+        # budget: the sweep's own cadence is the retry, and a market that hogs the long
+        # ladder starves every other market in the same sweep. See TICK_ATTEMPTS.
+        body = self._http.get_json(
+            f"/markets/{market_id}/orderbook", {"depth": depth}, attempts=TICK_ATTEMPTS
+        )
         ob = body.get("orderbook_fp") or {}
         return build_book(market_id, ob.get("yes_dollars"), ob.get("no_dollars"))
 

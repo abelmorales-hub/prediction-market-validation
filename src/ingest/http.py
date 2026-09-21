@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 from tenacity import (
-    retry,
+    Retrying,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential_jitter,
@@ -42,10 +42,26 @@ class TransientHTTPError(Exception):
     """429 or 5xx: worth retrying. 4xx is not and is raised as HTTPStatusError."""
 
 
-# Sized for unattended collection, not for an interactive script. Kalshi's TLS resets
-# have been observed to outlast a 5-attempt / 30-second budget, and for a scheduler
-# meant to run for months a lost sweep is a permanent hole in the dataset.
+# Two budgets, because "what is a retry worth" has two different answers here.
+#
+# MAX_ATTEMPTS is for calls nothing else will make again: the universe sweep, the series
+# catalogue, a resolution lookup. Kalshi's TLS resets have been observed to outlast a
+# 5-attempt / 30-second budget, and losing one of those calls loses a whole admission
+# step -- a permanent hole in the dataset for a scheduler meant to run for months.
+#
+# TICK_ATTEMPTS is for calls the caller is already about to repeat. The order book inside
+# the 60-second dense sweep is the only one, and there the long ladder is not caution, it
+# is the fault: eight attempts backing off toward 120 s hold a single market for ~5
+# minutes while every *other* market in the sweep waits behind it. Three such markets
+# produced the 5-to-30-minute stalls of 2026-09-17..20 and, with them, 70 CRITICAL gaps
+# -- because a stall that spans the minute a dense window opens misses that window for
+# the whole ladder at once, not just for the market that stalled.
+#
+# Giving up costs one sample, retried by the next tick 60 s later and still inside the
+# gap report's 2.5x tolerance. Blocking the sweep costs every market in it. The cheaper
+# failure is the one that is recoverable, and at this cadence that is giving up.
 MAX_ATTEMPTS = 8
+TICK_ATTEMPTS = 2
 RETRY_INITIAL_S = 2.0
 RETRY_MAX_S = 120.0
 
@@ -104,6 +120,9 @@ class PacedClient:
         self.cache = cache
         self._last_sent = 0.0
         self.throttles = 0
+        # Held on the instance rather than built per call so a test can neutralise the
+        # backoff without reaching into tenacity's internals.
+        self._wait = wait_exponential_jitter(initial=RETRY_INITIAL_S, max=RETRY_MAX_S)
 
     def __enter__(self) -> PacedClient:
         return self
@@ -134,13 +153,19 @@ class PacedClient:
 
     # -- requests ---------------------------------------------------------
 
-    @retry(
-        retry=retry_if_exception_type((*TRANSIENT_EXC, TransientHTTPError)),
-        stop=stop_after_attempt(MAX_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=RETRY_INITIAL_S, max=RETRY_MAX_S),
-        reraise=True,
-    )
-    def _send(self, path: str, params: dict[str, Any] | None) -> httpx.Response:
+    def _send(
+        self, path: str, params: dict[str, Any] | None, *, attempts: int = MAX_ATTEMPTS
+    ) -> httpx.Response:
+        """Retried per call rather than per client, because only the caller knows what
+        its own failure costs. See MAX_ATTEMPTS and TICK_ATTEMPTS."""
+        return Retrying(
+            retry=retry_if_exception_type((*TRANSIENT_EXC, TransientHTTPError)),
+            stop=stop_after_attempt(attempts),
+            wait=self._wait,
+            reraise=True,
+        )(self._send_once, path, params)
+
+    def _send_once(self, path: str, params: dict[str, Any] | None) -> httpx.Response:
         self._pace()
         started = time.perf_counter()
         try:
@@ -156,14 +181,19 @@ class PacedClient:
         return resp
 
     def get_json(
-        self, path: str, params: dict[str, Any] | None = None, *, cacheable: bool = False
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        *,
+        cacheable: bool = False,
+        attempts: int = MAX_ATTEMPTS,
     ) -> Any:
         key = path + "?" + json.dumps(params or {}, sort_keys=True)
         if cacheable and self.cache is not None:
             hit = self.cache.get(key)
             if hit is not None:
                 return hit
-        body = self._send(path, params).json()
+        body = self._send(path, params, attempts=attempts).json()
         if cacheable and self.cache is not None:
             self.cache.put(key, body)
         return body

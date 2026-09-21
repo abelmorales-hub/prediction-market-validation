@@ -9,6 +9,7 @@ import respx
 from pydantic import ValidationError
 
 from src.ingest.base import Market, MarketDataSource, Resolution
+from src.ingest.http import MAX_ATTEMPTS, TICK_ATTEMPTS
 from src.ingest.kalshi import KalshiMarket, KalshiSource
 
 BASE = "https://api.test/trade-api/v2"
@@ -112,6 +113,26 @@ def test_get_book_converts_the_recorded_orderbook(source: KalshiSource, sample: 
     book = source.get_book("T")
     assert book.best_ask > book.best_bid
     assert book.yes_asks and book.yes_bids
+
+
+@respx.mock
+def test_a_failing_book_cannot_hold_the_sweep(source: KalshiSource) -> None:
+    """One market's retries used to be every market's outage.
+
+    `get_book` is called once a minute per market inside the dense sweep, all of it in
+    one thread, so eight attempts backing off toward 120 s stall the markets queued
+    behind it too. That is what opened 70 CRITICAL dense-window gaps between 2026-09-17
+    and -20: the stalls spanned the minute the windows opened. The next tick is the
+    retry, so this call has to give up while the tick still has time left.
+    """
+    source._http._wait = lambda *a, **k: 0  # backoff, not attempts, is what tests skip
+    route = respx.get(f"{BASE}/markets/T/orderbook").mock(
+        side_effect=httpx.ConnectError("WinError 10054")
+    )
+    with pytest.raises(httpx.ConnectError):
+        source.get_book("T")
+    assert route.call_count == TICK_ATTEMPTS
+    assert TICK_ATTEMPTS < MAX_ATTEMPTS, "the sweep's budget must stay below the default"
 
 
 @respx.mock

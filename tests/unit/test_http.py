@@ -6,7 +6,13 @@ import httpx
 import pytest
 import respx
 
-from src.ingest.http import MAX_ATTEMPTS, DiskCache, PacedClient, TransientHTTPError
+from src.ingest.http import (
+    MAX_ATTEMPTS,
+    TICK_ATTEMPTS,
+    DiskCache,
+    PacedClient,
+    TransientHTTPError,
+)
 
 BASE = "https://api.test/v2"
 
@@ -15,7 +21,7 @@ BASE = "https://api.test/v2"
 def client(monkeypatch: pytest.MonkeyPatch) -> PacedClient:
     monkeypatch.setattr("time.sleep", lambda _: None)  # keep pacing out of the runtime
     c = PacedClient(BASE, 5.0, min_interval_s=0.1, max_interval_s=8.0)
-    c._send.retry.wait = lambda *a, **k: 0  # type: ignore[attr-defined]
+    c._wait = lambda *a, **k: 0  # type: ignore[assignment]
     return c
 
 
@@ -55,6 +61,20 @@ def test_retries_are_bounded(client: PacedClient) -> None:
     with pytest.raises(TransientHTTPError):
         client.get_json("/x")
     assert route.call_count == MAX_ATTEMPTS
+
+
+@respx.mock
+def test_a_tick_call_gives_up_long_before_the_default_ladder(client: PacedClient) -> None:
+    """The budget belongs to the caller, not to the client.
+
+    A book fetch on the dense sweep is retried by the next tick 60 s later, so spending
+    the full ladder on it stalls every other market in the same sweep for minutes.
+    """
+    route = respx.get(f"{BASE}/x").mock(side_effect=httpx.ConnectError("WinError 10054"))
+    with pytest.raises(httpx.ConnectError):
+        client.get_json("/x", attempts=TICK_ATTEMPTS)
+    assert route.call_count == TICK_ATTEMPTS
+    assert TICK_ATTEMPTS < MAX_ATTEMPTS, "the short budget must actually be shorter"
 
 
 @respx.mock
