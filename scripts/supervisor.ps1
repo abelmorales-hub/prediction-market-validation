@@ -68,13 +68,21 @@ $BandStart      = '05:30'
 $BandDurationH  = 6
 $BandEnd        = ([datetime]$BandStart).AddHours($BandDurationH).ToString('HH:mm')
 
-# Sleep must come after the last repetition, not after the band's nominal end. At 11:05
-# with repetitions running to 11:30, pmv-emit was still due at 11:06 -- and every
-# collector carries WakeToRun, so the next tick would have woken the machine straight
-# back up. Ten minutes past the last tick, plus the snapshotter's own --until stop, so
-# nothing is suspended mid-flush.
+# Sleep is attempted from the band's end and retried, rather than fired once ten minutes
+# after it. The single 11:40 shot skipped on 2026-09-18, -19 and -20 -- "collectors still
+# running" every time -- and a skip was final, so the machine stayed awake until somebody
+# suspended it by hand. On 09-20 that hand fell at 08:38, mid-band, and cost three hours
+# of collection.
+#
+# An early first attempt is safe because of the guards in Invoke-SleepIfIdle, not in spite
+# of them: a running collector or a machine in use skips, so the first attempt that
+# actually suspends is by construction one where the band is over and nothing is
+# mid-flush. Retrying only means a skip is no longer permanent. The retry window is
+# bounded so a machine left idle in the afternoon is never suspended out of nowhere.
 $SleepTaskName  = 'pmv-sleep'
-$SleepAt        = ([datetime]$BandEnd).AddMinutes(10).ToString('HH:mm')
+$SleepAt        = $BandEnd
+$SleepRetryMin  = 5
+$SleepRetryH    = 1
 
 $SnapshotIntervalMin = 15
 $EmitIntervalMin     = 4
@@ -321,13 +329,21 @@ function Install-Tasks {
     $sleepSettings.WakeToRun = $false
     $sleepSettings.StartWhenAvailable = $false
 
+    # Same idiom as the collectors: the repetition is the retry mechanism. IgnoreNew
+    # already discards a tick that lands on a live attempt.
+    $sleepTrigger = New-ScheduledTaskTrigger -Daily -At $SleepAt
+    $sleepTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At $SleepAt `
+        -RepetitionInterval (New-TimeSpan -Minutes $SleepRetryMin) `
+        -RepetitionDuration (New-TimeSpan -Hours $SleepRetryH)).Repetition
+
     Register-ScheduledTask -TaskName $SleepTaskName `
         -Action $sleepAction `
-        -Trigger (New-ScheduledTaskTrigger -Daily -At $SleepAt) `
+        -Trigger $sleepTrigger `
         -Settings $sleepSettings `
         -Description 'Prediction market validation: sleep after the band, unless in use' `
         -Force | Out-Null
-    Write-Host "registered $SleepTaskName  (at $SleepAt, skips if the machine is in use)"
+    Write-Host ("registered $SleepTaskName  (from $SleepAt, retried every $SleepRetryMin min " +
+                "for ${SleepRetryH}h; skips while collecting or in use)")
 
     Write-Host ""
     Write-Host "Band: $BandStart-$BandEnd local, daily. Wakes the machine from sleep."
