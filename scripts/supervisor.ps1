@@ -210,7 +210,16 @@ function Invoke-SleepIfIdle {
     # entirely, which made the in-use guard -- the one thing this job exists for --
     # impossible to observe without waiting for a real 11:05.
     $idle = Get-IdleSeconds
-    $running = @(Get-Process python -ErrorAction SilentlyContinue)
+    # Identified by interpreter path, not by process name. `Get-Process python` matched
+    # every python on the machine, and on 2026-09-17 another project left a
+    # `python -m http.server` running: from 09-18 on, every sleep attempt skipped on it.
+    # The failure was invisible because "collectors still running" is precisely what a
+    # healthy band looks like, so the log read normal while the machine never slept again.
+    # Every pmv task runs $PythonExe, pmv-g0-check included, so the gate is still waited on.
+    $running = @(
+        Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.ExecutablePath -eq $PythonExe }
+    )
     # No :N0. On a Spanish locale that renders 11058 as "11.058", which reads as eleven
     # seconds to anyone scanning the log and made a correct SLEEP decision look like a
     # bug. Plain integers, no thousands separator, in a log meant to be believed.
