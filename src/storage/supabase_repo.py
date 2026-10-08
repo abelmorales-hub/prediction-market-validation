@@ -9,6 +9,7 @@ the database is the guarantee.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 from datetime import date, datetime
 from pathlib import Path
@@ -17,10 +18,44 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 from pydantic import BaseModel, ConfigDict
+from tenacity import (
+    Retrying,
+    before_sleep_log,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from src.ingest.base import Market, Resolution
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
+
+log = logging.getLogger(__name__)
+
+# Waking from S3 brings the link up before the resolver answers. Twice now the 05:30 tick
+# has fired ~25 s after resume and died on `getaddrinfo failed` for the pooler, taking the
+# band's first sweep with it (2026-09-13, 2026-10-01 -- the latter logged DNS-Client 1014,
+# "no configured DNS server responded", while the link itself was up and identified).
+#
+# The budget is deliberately ~1 minute, not the 8-attempt ladder of src/ingest/http.py.
+# Every collector is re-launched by its own scheduled task every 4-15 min, so a resolver
+# still dead after a minute is the next tick's problem; holding this process open longer
+# only delays the log line that says why it failed. The 2026-10-01 outage lasted ~2h50m
+# and no startup budget would have saved it -- what this buys is the resume race, where
+# the difference is a dead first tick and a slow one.
+CONNECT_ATTEMPTS = 6
+CONNECT_INITIAL_S = 2.0
+CONNECT_MAX_S = 30.0
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """True only for faults that never reached Postgres.
+
+    `sqlstate` is set exactly when the server answered, so a bad password or a missing
+    database fails on the first attempt instead of backing off for a minute and burying
+    the real cause under retry noise.
+    """
+    return isinstance(exc, psycopg.OperationalError) and exc.sqlstate is None
 
 
 class Prediction(BaseModel):
@@ -41,7 +76,15 @@ class Prediction(BaseModel):
 
 
 def connect(dsn: str) -> psycopg.Connection[Any]:
-    return psycopg.connect(dsn, row_factory=dict_row)
+    """Open the connection, waiting out a resolver that is not up yet. See
+    CONNECT_ATTEMPTS for why the budget is short."""
+    return Retrying(
+        retry=retry_if_exception(_is_transient),
+        stop=stop_after_attempt(CONNECT_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=CONNECT_INITIAL_S, max=CONNECT_MAX_S),
+        before_sleep=before_sleep_log(log, logging.WARNING),
+        reraise=True,
+    )(psycopg.connect, dsn, row_factory=dict_row)
 
 
 def apply_migrations(conn: psycopg.Connection[Any], directory: Path = MIGRATIONS_DIR) -> list[str]:
