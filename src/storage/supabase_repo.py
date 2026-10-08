@@ -355,7 +355,7 @@ class Repo:
                 select p.market_id, p.ts, p.horizon_label, p.p_hat, p.market_mid,
                        p.market_bid, p.market_ask, p.model_version,
                        o.outcome, o.was_disputed,
-                       m.category, m.event_family
+                       m.category, m.event_family, m.end_date
                 from predictions p
                 join outcomes o on o.market_id = p.market_id
                 join markets  m on m.market_id = p.market_id

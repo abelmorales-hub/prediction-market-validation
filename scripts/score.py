@@ -18,8 +18,15 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.analysis.frame import FROZEN_MODELS, build_frame, resolve_models
+from src.analysis.frame import (
+    FROZEN_MODELS,
+    build_frame,
+    g3_sample,
+    read_exclusions,
+    resolve_models,
+)
 from src.config import get_settings
+from src.scheduler.gaps import parse_since
 from src.scoring.bootstrap import required_n
 from src.scoring.report import build_report
 from src.storage.supabase_repo import Repo, connect
@@ -37,6 +44,15 @@ def main() -> int:
         help="score only this model_version; repeatable. Default: every model except the "
         f"frozen ones ({', '.join(sorted(FROZEN_MODELS))}), whose score is a single "
         "pre-committed look",
+    )
+    # Amendment 11's sample, as flags rather than defaults: an unqualified run still
+    # scores everything, which is what the health gates want. The G3 run passes all three.
+    ap.add_argument("--since", help="ISO instant; drop predictions stamped before it")
+    ap.add_argument("--until", help="ISO instant; drop predictions stamped at or after it")
+    ap.add_argument(
+        "--exclude",
+        metavar="PATH",
+        help="file of market ids to exclude, from `gap_report --critical-markets`",
     )
     args = ap.parse_args()
 
@@ -57,6 +73,18 @@ def main() -> int:
     withheld = sorted({str(r["model_version"]) for r in rows} - models)
     if withheld:
         print(f"withheld: {', '.join(withheld)}  (name it with --model to include it)\n")
+
+    if args.since or args.until or args.exclude:
+        rows, census = g3_sample(
+            rows,
+            since=parse_since(args.since) if args.since else None,
+            until=parse_since(args.until) if args.until else None,
+            exclude=read_exclusions(Path(args.exclude)) if args.exclude else (),
+        )
+        print("SAMPLE (docs/pre_declaration.md, Amendment 11)")
+        for line in census.as_lines():
+            print(f"  {line}")
+        print()
 
     frame = build_frame(rows, models=models)
     if args.horizon:

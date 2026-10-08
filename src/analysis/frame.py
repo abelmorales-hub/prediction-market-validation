@@ -15,10 +15,14 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
+
+from src.analysis.horizons import HORIZONS, TOLERANCE
 
 FloatArray = NDArray[np.float64]
 
@@ -171,6 +175,110 @@ def build_frame(
         horizons=np.array([s["horizon"] for s in complete], dtype=np.str_),
         market_ids=np.array([s["market_id"] for s in complete], dtype=np.str_),
     )
+
+
+@dataclass(frozen=True)
+class SampleCensus:
+    """Why rows left, rule by rule. Printed with every G3 report.
+
+    A sample defined only in prose is the fifth gate answering an easier question
+    (Amendment 10). This is the arithmetic that has to reconcile: `rows_in` minus every
+    `dropped_*` equals `kept`.
+    """
+
+    rows_in: int
+    kept: int
+    dropped_before: int
+    dropped_after: int
+    dropped_excluded: int
+    dropped_unverifiable: int
+    dropped_stale: int
+
+    def as_lines(self) -> list[str]:
+        return [
+            f"rows from scored_pairs           {self.rows_in}",
+            f"  before the window start       -{self.dropped_before}",
+            f"  at or after the cut           -{self.dropped_after}",
+            f"  market on the exclusion list  -{self.dropped_excluded}",
+            f"  horizon not verifiable        -{self.dropped_unverifiable}",
+            f"  snapshot outside tolerance    -{self.dropped_stale}",
+            f"rows admitted to the sample      {self.kept}",
+        ]
+
+
+def g3_sample(
+    rows: Sequence[dict[str, Any]],
+    since: datetime | None = None,
+    until: datetime | None = None,
+    exclude: Collection[str] = (),
+    max_lag: timedelta = TOLERANCE,
+) -> tuple[list[dict[str, Any]], SampleCensus]:
+    """Amendment 11's declared G3 sample, as a row filter applied *before* the pivot.
+
+    Three rules, in this order:
+
+    1. **Window.** `since <= ts < until`. The cut is a fixed instant so the sample cannot
+       quietly grow between the amendment and the run.
+    2. **Exclusion list.** Markets carrying a CRITICAL gap in their own dense windows,
+       read from a committed file rather than recomputed, so the sample stays reproducible
+       after the parquet grows.
+    3. **Integrity.** The snapshot standing for the horizon must sit at or before it and
+       within `max_lag`. `pick` already guarantees this at emission time, but `end_date` is
+       refreshed on every catalogue pass, so a venue that moved a close *after* the fact
+       would retroactively turn a sound pairing into a stale one. This is the property
+       section 5's void rule protects, and checking it per observation is stronger than
+       inferring it from the absence of gaps.
+
+    Fails closed: a row whose horizon offset or `end_date` is missing cannot be verified
+    and is not admitted. Filtering before `build_frame` matters for the same reason its
+    own docstring gives -- the completeness rule drops any (market, horizon) not carrying
+    every model, so filtering afterwards would trim the frame to whatever survived.
+    """
+    offsets = dict(HORIZONS)
+    excluded = frozenset(exclude)
+    kept: list[dict[str, Any]] = []
+    before = after = dropped_excluded = unverifiable = stale = 0
+
+    for r in rows:
+        ts = r["ts"]
+        if since is not None and ts < since:
+            before += 1
+            continue
+        if until is not None and ts >= until:
+            after += 1
+            continue
+        if str(r["market_id"]) in excluded:
+            dropped_excluded += 1
+            continue
+        offset = offsets.get(str(r["horizon_label"]))
+        close = r.get("end_date")
+        if offset is None or close is None:
+            unverifiable += 1
+            continue
+        lag = (close - offset) - ts
+        if not timedelta(0) <= lag <= max_lag:
+            stale += 1
+            continue
+        kept.append(r)
+
+    return kept, SampleCensus(
+        rows_in=len(rows),
+        kept=len(kept),
+        dropped_before=before,
+        dropped_after=after,
+        dropped_excluded=dropped_excluded,
+        dropped_unverifiable=unverifiable,
+        dropped_stale=stale,
+    )
+
+
+def read_exclusions(path: Path) -> set[str]:
+    """Market ids from a `--critical-markets` file. `#` comments and blanks ignored."""
+    return {
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
 
 
 def _as_binary(outcome: Any) -> float:
