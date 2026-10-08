@@ -54,6 +54,14 @@ def main() -> int:
         metavar="PATH",
         help="file of market ids to exclude, from `gap_report --critical-markets`",
     )
+    ap.add_argument(
+        "--require-n",
+        type=int,
+        metavar="N",
+        help="refuse to score unless the sample has N complete observations. A guard on "
+        "an irreversible act: H2 gets one look, and `715` is Amendment 6's n. It can "
+        "only abort, never change what a report that does run says",
+    )
     args = ap.parse_args()
 
     cfg = get_settings()
@@ -89,6 +97,16 @@ def main() -> int:
     frame = build_frame(rows, models=models)
     if args.horizon:
         frame = frame.restricted_to(args.horizon)
+
+    # Before `build_report`, which is where a score first exists. `build_frame` pivots and
+    # drops unresolved rows but computes nothing, so stopping here spends no look.
+    if args.require_n is not None and len(frame) < args.require_n:
+        print(
+            f"{len(frame)} complete observations, {args.require_n} required: "
+            f"{args.require_n - len(frame)} short. Nothing scored."
+        )
+        print("A pre-committed n is only a commitment while the run can still be refused.")
+        return 1
 
     if len(frame) == 0:
         print(f"scored_pairs returned {len(rows)} rows; 0 complete scorable observations.")
