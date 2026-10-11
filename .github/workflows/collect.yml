@@ -1,4 +1,4 @@
-name: collect
+﻿name: collect
 
 # Collection moved off the desktop on 2026-10-11. The desktop lost 5 of 37 band-days,
 # three of them because it was asleep and did not honour its own wake timer -- 10-10 and
@@ -47,8 +47,12 @@ on:
 permissions:
   contents: write
 
+# Workflow-level `env` may only read `github`, `inputs` and `vars` -- **not `secrets`**.
+# Putting the database URL here instead cost an hour: GitHub refuses the file outright and
+# reports nothing, so `actions/workflows` returned total_count 0 while the file sat on the
+# default branch and `yaml.safe_load` parsed it happily. The secret lives on each job,
+# where the `secrets` context is actually available.
 env:
-  SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
   PYTHONUNBUFFERED: '1'
 
 jobs:
@@ -60,6 +64,8 @@ jobs:
   preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.job == 'preflight'
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +82,8 @@ jobs:
       github.event.schedule == '10 6 * * *' ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'band')
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     # Generous against the 3h30m shift: the deadline ends the run, not this.
     timeout-minutes: 230
     # Keyed per schedule, not per workflow: a second copy of the *same* shift is a
@@ -175,6 +183,8 @@ jobs:
       github.event.schedule == '5 * * * *' ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'gefs')
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     timeout-minutes: 20
     concurrency:
       group: gefs
@@ -194,6 +204,8 @@ jobs:
       github.event.schedule == '30 10 * * *' ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'resolutions')
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     timeout-minutes: 30
     concurrency:
       group: resolutions
