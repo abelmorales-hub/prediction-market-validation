@@ -1,0 +1,207 @@
+name: collect
+
+# Collection moved off the desktop on 2026-10-11. The desktop lost 5 of 37 band-days,
+# three of them because it was asleep and did not honour its own wake timer -- 10-10 and
+# 10-11 were one unbroken 47-hour sleep. A runner cannot sleep, so that entire failure
+# class is gone rather than mitigated.
+#
+# Everything here is UTC, which is the second reason to move. The old band was declared
+# in Europe/Madrid local time, and Madrid's DST ends 2026-10-25, mid-window: the band
+# would have shifted an hour against the market close times halfway through the study,
+# silently. A runner has no DST seam.
+#
+# **Lateness is the one thing Actions is bad at.** Scheduled workflows are routinely
+# minutes late and occasionally dropped. That is survivable here only because the
+# collector is a window and not an alarm: it sweeps continuously on a ~60 s cadence, so a
+# late start eats the margin in front of the window and costs nothing. The margins below
+# are sized for that, and `--until` is an absolute instant, so a late start never pushes
+# the *end* later either (see `run_forever`'s `deadline`).
+#
+# The US ladders' T-24h instants fall in 04:00-09:00 UTC across the study -- they move an
+# hour when US DST ends on 2026-11-01, and that range covers both sides of it.
+#
+#   shift A   fires 03:20Z, runs to 06:50Z   -> 40 min of margin ahead of 04:00
+#   shift B   fires 06:10Z, runs to 09:10Z   -> 40 min of overlap with A
+#
+# The overlap is what makes B's lateness harmless: if B fires 40 minutes late, A is still
+# sweeping. Two shifts rather than one 6-hour job because the per-job cap *is* 6 hours,
+# and because a dropped run should cost half a window instead of all of it.
+
+on:
+  schedule:
+    - cron: '20 3 * * *'    # band, shift A
+    - cron: '10 6 * * *'    # band, shift B
+    - cron: '5 * * * *'     # GEFS, hourly
+    - cron: '30 10 * * *'   # resolutions, after the band
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'which job to run by hand'
+        type: choice
+        options: [preflight, band, gefs, resolutions]
+        default: preflight
+      until:
+        description: 'band only: UTC HH:MM to stop at'
+        default: '09:10'
+
+permissions:
+  contents: write
+
+env:
+  SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  # Run this first, by hand, before trusting any of the above. Kalshi sits behind
+  # Cloudflare, and this project has already met one venue that resolved in DNS and then
+  # reset every TLS handshake from a particular network (Polymarket, from the desktop's
+  # connection). Whether a datacenter IP gets served is a question about the network
+  # rather than the code, and it is answerable in two minutes.
+  preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.job == 'preflight'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: reach Kalshi and the weather feed from this runner
+        run: uv run python -m scripts.preflight
+
+  band:
+    if: >-
+      github.event.schedule == '20 3 * * *' ||
+      github.event.schedule == '10 6 * * *' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'band')
+    runs-on: ubuntu-latest
+    # Generous against the 3h30m shift: the deadline ends the run, not this.
+    timeout-minutes: 230
+    # Keyed per schedule, not per workflow: a second copy of the *same* shift is a
+    # duplicate, but A and B are supposed to overlap.
+    concurrency:
+      group: band-${{ github.event.schedule || inputs.until }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The Parquet store is committed here, so the push below has to rebase onto
+          # whatever the other shift pushed. Full history keeps that simple; revisit if
+          # the checkout gets slow as the store grows (~1.5 MB/day).
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+
+      - name: pick this shift's deadline
+        id: window
+        run: |
+          case "${{ github.event.schedule }}" in
+            '20 3 * * *') end='06:50' ;;
+            '10 6 * * *') end='09:10' ;;
+            *)            end='${{ inputs.until }}' ;;
+          esac
+          echo "deadline=$(date -u +%Y-%m-%d)T${end}:00+00:00" >> "$GITHUB_OUTPUT"
+
+      - name: snapshot the books, emitting predictions alongside
+        run: |
+          set -uo pipefail
+          deadline='${{ steps.window.outputs.deadline }}'
+          echo "collecting until ${deadline}"
+
+          # These two must share a filesystem: emit_baselines reads the snapshot the
+          # snapshotter just wrote, through DuckDB, off local Parquet. That is why they
+          # are one job and not two.
+          uv run python -m scripts.snapshot --until "$deadline" --tick 60 \
+            > snapshot.log 2>&1 &
+          snap=$!
+
+          # A prediction cannot be backfilled -- the database refuses one stamped at or
+          # after its market's close -- so a horizon that passes without emit running is
+          # gone for good. It runs every 4 minutes for as long as the snapshotter lives,
+          # and a failed pass is logged and retried rather than fatal.
+          while kill -0 "$snap" 2>/dev/null; do
+            uv run python -m scripts.emit_baselines >> emit.log 2>&1 \
+              || echo "$(date -u +%H:%M:%S) emit failed, continuing" >> emit.log
+            sleep 240
+          done
+          wait "$snap" || echo 'snapshotter exited non-zero; see snapshot.log'
+
+          tail -n 5 snapshot.log emit.log || true
+
+      - name: commit the snapshots
+        run: |
+          set -euo pipefail
+          git config user.name  'pmv-collector'
+          git config user.email 'pmv-collector@users.noreply.github.com'
+          git add data/snapshots
+          if git diff --cached --quiet; then
+            echo 'no new snapshots to commit'
+            exit 0
+          fi
+          git commit -q -m "data: snapshots $(date -u +%Y-%m-%d) (${{ github.event.schedule || 'manual' }})"
+          # The other shift may have pushed while this one collected. Part filenames carry
+          # a content token precisely so this rebase can never collide on a path.
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin "${GITHUB_REF_NAME}" \
+              && git rebase -q "origin/${GITHUB_REF_NAME}" \
+              && git push -q origin "HEAD:${GITHUB_REF_NAME}" \
+              && { echo "pushed on attempt ${attempt}"; exit 0; }
+            echo "push attempt ${attempt} failed, retrying"
+            sleep 15
+          done
+          echo 'could not push the snapshots'
+          exit 1
+
+      - name: keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: band-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            snapshot.log
+            emit.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # Hourly, and the cadence is the point: a prediction uses the newest ensemble that
+  # existed before it, so this bounds how stale that can be. The endpoint does not report
+  # its own run's init time, which means point-in-time integrity here rests entirely on
+  # the row having been written live. It cannot be backfilled.
+  gefs:
+    if: >-
+      github.event.schedule == '5 * * * *' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'gefs')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: gefs
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run python -m scripts.fetch_gefs
+
+  # Outcomes are the one thing here that can be backfilled, so this is the job whose
+  # lateness genuinely does not matter. It runs after the band rather than inside it.
+  resolutions:
+    if: >-
+      github.event.schedule == '30 10 * * *' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'resolutions')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: resolutions
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run python -m scripts.watch_resolutions --catalogue

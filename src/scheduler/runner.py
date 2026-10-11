@@ -242,6 +242,8 @@ class SnapshotRunner:
         sleep: Callable[[float], None] | None = None,
         refresh_every: int = 30,
         clock: Callable[[], float] | None = None,
+        deadline: datetime | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> RunStats:
         """Poll on a fixed tick. The cadence decides which markets are due on each one.
 
@@ -253,14 +255,23 @@ class SnapshotRunner:
         a 60-second tick with a 10-second sweep samples every 70 seconds — under the gap
         report's tolerance individually, but it compounds across a dense window and every
         sample lands progressively later than the horizon it is supposed to bracket.
+
+        `deadline` is an absolute instant where `max_ticks` is a count, and the difference
+        is the whole point: a count is only a stopping *time* if every tick takes exactly
+        `tick_s`. Sweeps overrun and hosts suspend, so the budget outlives the window it
+        was sized for — which is how a 2026-09-20 suspend left the 05:30 snapshotter alive
+        at 12:00, and how a shift on an ephemeral runner would walk into the next one.
+        Pass both: the deadline ends the window, the count is the safety net under a clock
+        that steps backwards.
         """
         import time
 
         sleep = sleep or time.sleep
         clock = clock or time.monotonic
+        now = now or (lambda: datetime.now(UTC))
         markets: list[Market] = []
         tick = 0
-        while max_ticks is None or tick < max_ticks:
+        while (max_ticks is None or tick < max_ticks) and (deadline is None or now() < deadline):
             started = clock()
             # Nothing inside a tick may end the run. An unattended collector that dies
             # on a transient block leaves a permanent hole in the dataset, and the whole
@@ -291,7 +302,9 @@ class SnapshotRunner:
             finally:
                 self.flush()
             tick += 1
-            if max_ticks is None or tick < max_ticks:
+            if (max_ticks is None or tick < max_ticks) and (
+                deadline is None or now() < deadline
+            ):
                 # A sweep that overran its tick gets no sleep at all rather than a
                 # negative one, and the next tick starts immediately. Falling behind is
                 # reported by the gap report, not hidden by silently stretching the grid.

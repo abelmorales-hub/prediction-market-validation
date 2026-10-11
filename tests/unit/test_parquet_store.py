@@ -58,8 +58,26 @@ def test_repeated_writes_add_parts_and_never_overwrite(tmp_path: Path) -> None:
     write_snapshots([_snap()], tmp_path)
     write_snapshots([_snap(market_id="B-2")], tmp_path)
     parts = sorted(p.name for p in (tmp_path / "date=2026-09-01").glob("part-*.parquet"))
-    assert parts == ["part-00000.parquet", "part-00001.parquet"]
+    assert len(parts) == 2, parts
+    assert [p.split("-")[1] for p in parts] == ["00000", "00001"], "write order stays readable"
     assert len(read_snapshots(tmp_path)) == 2
+
+
+def test_two_writers_from_the_same_state_do_not_pick_the_same_part_name(
+    tmp_path: Path,
+) -> None:
+    """Collection runs on ephemeral runners with overlapping shifts, each with its own
+    checkout. Naming a part after a count of the files already present makes both pick
+    the same name for different content, and the collision arrives as a git conflict on
+    one path -- resolved either way, one shift's snapshots are gone."""
+    first = write_snapshots([_snap(market_id="A-1")], tmp_path / "shift-a")
+    second = write_snapshots([_snap(market_id="B-2")], tmp_path / "shift-b")
+    assert first[0].name != second[0].name, "different content must not claim one path"
+
+    # The same batch from the same state is a retry, not a second observation, and must
+    # land on the name it already had instead of duplicating its rows beside it.
+    retry = write_snapshots([_snap(market_id="A-1")], tmp_path / "shift-c")
+    assert retry[0].name == first[0].name
 
 
 def test_writing_nothing_creates_nothing(tmp_path: Path) -> None:

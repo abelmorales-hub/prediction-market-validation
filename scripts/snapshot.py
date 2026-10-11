@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from datetime import datetime, time
+from datetime import UTC, datetime, time
 
 from src.config import get_settings
 from src.ingest.kalshi import KalshiSource
@@ -19,22 +19,30 @@ from src.scheduler.runner import SnapshotRunner
 from src.storage.supabase_repo import Repo, connect
 
 
-def _minutes_until(hhmm: str) -> int:
-    """Minutes from now until *today's* occurrence of a local wall-clock time.
+def parse_until(spec: str) -> datetime:
+    """The absolute instant this run must stop at.
 
-    Deliberately does not roll forward to tomorrow. A negative result means the band has
-    already closed, and the caller exits instead of collecting: that is what stops a
-    restart tick firing after the band from running a whole extra window.
+    Two spellings, because the two hosts want different things:
 
-    Local, not UTC. The band exists to bracket horizons that are themselves fixed to a
-    wall clock, and it has to keep bracketing them across a DST change.
+    * `HH:MM` — *today's* occurrence of a local wall-clock time. Deliberately does not
+      roll forward to tomorrow: a time already past means the band has closed, and the
+      caller exits rather than collecting a whole extra window. Local, because a band on
+      a desktop brackets horizons fixed to a wall clock and has to keep bracketing them
+      across a DST change.
+    * a full ISO 8601 instant — what a UTC runner wants, where there is no DST seam to
+      track and the shift boundary is the thing that must not move. A naive value is
+      read as local.
+
+    An instant, not a duration, on purpose: the old code converted this to a tick count
+    once at startup, so anything that slowed a tick stretched the run past the band.
+    See `run_forever`'s `deadline`.
     """
-    target_t = time.fromisoformat(hhmm)
-    now = datetime.now().astimezone()
-    target = now.replace(
-        hour=target_t.hour, minute=target_t.minute, second=0, microsecond=0
-    )
-    return int((target - now).total_seconds() // 60)
+    if len(spec) <= 5 and ":" in spec:
+        target_t = time.fromisoformat(spec)
+        now = datetime.now().astimezone()
+        return now.replace(hour=target_t.hour, minute=target_t.minute, second=0, microsecond=0)
+    parsed = datetime.fromisoformat(spec)
+    return parsed if parsed.tzinfo else parsed.astimezone()
 
 
 def main() -> int:
@@ -42,9 +50,9 @@ def main() -> int:
     ap.add_argument("--minutes", type=int, default=0, help="0 = run until interrupted")
     ap.add_argument(
         "--until",
-        help="local HH:MM to stop at. Unlike --minutes this is absolute, so a run that "
-        "starts late still ends when the collection band does instead of overrunning it "
-        "and holding the machine awake.",
+        help="instant to stop at: local HH:MM, or a full ISO 8601 timestamp. Absolute "
+        "where --minutes is a budget, so a run that starts late still ends when the "
+        "window does instead of overrunning into the next one.",
     )
     ap.add_argument("--tick", type=float, default=60.0, help="seconds between sweeps")
     ap.add_argument("--horizon-hours", type=int, default=30, help="track markets closing within")
@@ -114,21 +122,20 @@ def main() -> int:
             repo=repo,
             series_tickers=series,
         )
-        minutes = args.minutes
-        if args.until:
-            remaining = _minutes_until(args.until)
-            if remaining <= 0:
-                logging.info("already past --until %s; nothing to collect", args.until)
-                return 0
-            # Whichever bound is tighter. --until is what keeps a late-starting instance
-            # from running the full --minutes and overrunning the band.
-            minutes = remaining if not minutes else min(minutes, remaining)
-        ticks = int(minutes * 60 / args.tick) if minutes else None
+        deadline = parse_until(args.until) if args.until else None
+        if deadline is not None and deadline <= datetime.now(UTC):
+            logging.info("already past --until %s; nothing to collect", args.until)
+            return 0
+        # --minutes stays a tick count: it is a budget, and a caller asking for sixty
+        # minutes of sweeps is asking for sixty minutes of sweeps. --until is the window,
+        # and a window is a pair of instants. Both bounds apply when both are given.
+        ticks = int(args.minutes * 60 / args.tick) if args.minutes else None
         try:
             stats = runner.run_forever(
                 closing_within_s=args.horizon_hours * 3600,
                 tick_s=args.tick,
                 max_ticks=ticks,
+                deadline=deadline,
             )
         except KeyboardInterrupt:
             print("\ninterrupted", file=sys.stderr)

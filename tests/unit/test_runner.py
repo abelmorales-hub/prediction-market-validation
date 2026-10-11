@@ -232,6 +232,45 @@ def test_a_sweep_that_overruns_its_tick_never_sleeps_negative(tmp_path: Path) ->
     assert slept == [0.0]
 
 
+def test_the_deadline_ends_the_window_even_when_ticks_run_slow(tmp_path: Path) -> None:
+    """A tick count is not a stopping time. `--until` used to be converted into one at
+    startup, so anything that slowed a tick stretched the run past the window it was
+    sized for -- which is how a 2026-09-20 suspend left the 05:30 snapshotter alive at
+    12:00. On an ephemeral runner that overrun walks into the next shift."""
+    runner = SnapshotRunner(FakeSource([_open_market()]), tmp_path)
+    start = datetime(2026, 11, 1, 3, 20, tzinfo=UTC)
+    # Four wall-clock minutes per call against a ten-minute window: a 60 s tick_s would
+    # have fitted ten ticks, and the real clock allows two.
+    calls = iter(range(0, 100, 4))
+    slept: list[float] = []
+    runner.run_forever(
+        tick_s=60,
+        max_ticks=100,
+        sleep=slept.append,
+        deadline=start + timedelta(minutes=10),
+        now=lambda: start + timedelta(minutes=next(calls)),
+    )
+    assert len(slept) == 1, "stopped on the clock, not on the budget"
+
+
+def test_the_tick_budget_still_applies_under_a_clock_that_does_not_advance(
+    tmp_path: Path,
+) -> None:
+    """The count is the safety net. NTP stepped this machine's clock by hours on resume
+    more than once, and a deadline alone would let a backwards step run forever."""
+    runner = SnapshotRunner(FakeSource([_open_market()]), tmp_path)
+    frozen = datetime(2026, 11, 1, 3, 20, tzinfo=UTC)
+    slept: list[float] = []
+    runner.run_forever(
+        tick_s=60,
+        max_ticks=2,
+        sleep=slept.append,
+        deadline=frozen + timedelta(hours=6),
+        now=lambda: frozen,
+    )
+    assert len(slept) == 1, "two ticks, and no sleep after the last one"
+
+
 def test_a_sparse_step_does_not_step_over_a_dense_window(tmp_path: Path) -> None:
     """`next_snapshot_at` holds the clamp, but the runner compared intervals directly and
     never called it — a fully-tested function that production never reached."""

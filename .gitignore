@@ -10,8 +10,12 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Book snapshots are high-volume and regenerable; raw_samples/ IS tracked.
-data/snapshots/
+# Book snapshots were ignored as "high-volume and regenerable". Both halves of that were
+# wrong. They are ~1.5 MB/day, and they are the one thing here that cannot be regenerated
+# at all: a book at an instant that has passed is gone. Since 2026-10-11 collection runs
+# on ephemeral runners with no disk that outlives the job, so this store is tracked --
+# which also upgrades the point-in-time claim from "a job wrote this live, trust us" to a
+# GitHub commit timestamp, and that is third-party attestation.
 data/cache/
 
 # Run logs.

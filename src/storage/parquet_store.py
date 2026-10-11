@@ -98,6 +98,25 @@ def _partition(root: Path, ts: datetime) -> Path:
     return root / f"date={ts.astimezone(UTC).date().isoformat()}"
 
 
+def _part_name(chunk: Sequence[BookSnapshot], directory: Path) -> str:
+    """`part-<ordinal>-<token>.parquet`.
+
+    The ordinal keeps a directory listing in write order, which is what a human reads it
+    for. The token is what makes the name safe: an ordinal alone is a count of the files
+    already present, so **two writers starting from the same state pick the same name**.
+    On a single machine that was merely unlikely. With collection on ephemeral runners
+    whose shifts overlap, each with its own checkout, it is the normal case — and the
+    collision surfaces as a git conflict on a path, where resolving it either way
+    silently discards one shift's snapshots.
+
+    Derived from the content rather than from randomness, so a retried write of the same
+    batch lands on the same name instead of duplicating its rows.
+    """
+    ordinal = len(list(directory.glob("part-*.parquet")))
+    seed = f"{len(chunk)}|{chunk[0].market_id}|{chunk[0].ts.isoformat()}|{chunk[-1].book_hash}"
+    return f"part-{ordinal:05d}-{hashlib.sha256(seed.encode()).hexdigest()[:8]}.parquet"
+
+
 def write_snapshots(rows: Sequence[BookSnapshot], root: Path) -> list[Path]:
     """Append one part file per UTC date touched. Never rewrites an existing part, so a
     crashed run leaves whole files behind rather than a truncated one."""
@@ -110,7 +129,7 @@ def write_snapshots(rows: Sequence[BookSnapshot], root: Path) -> list[Path]:
     written = []
     for directory, chunk in by_date.items():
         directory.mkdir(parents=True, exist_ok=True)
-        part = directory / f"part-{len(list(directory.glob('part-*.parquet'))):05d}.parquet"
+        part = directory / _part_name(chunk, directory)
         table = pa.Table.from_pylist(
             [r.model_dump() for r in chunk],
             schema=SCHEMA,
