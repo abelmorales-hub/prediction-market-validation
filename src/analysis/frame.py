@@ -30,10 +30,16 @@ FloatArray = NDArray[np.float64]
 # by accident. H2 is frozen at 782bb44 and gets exactly one G3 reading; a "quick sanity
 # check" that happens to include it spends that reading without anyone deciding to.
 #
-# Duplicated from `src.analysis.weather.MODEL_VERSION` on purpose: importing it here would
-# drag `src.storage` and `src.models` into what is otherwise a pure pivot over dicts.
+# Duplicated from the forecasters' own `MODEL_VERSION` on purpose: importing them here
+# would drag `src.storage` and `src.models` into what is otherwise a pure pivot over dicts.
 # `test_frozen_models_matches_the_declared_model_version` fails if the two ever drift.
-FROZEN_MODELS = frozenset({"gefs_ensemble_raw"})
+#
+# H2 stays listed after losing G3, and that is not housekeeping. Its look is spent, so the
+# only thing an unqualified run could do now is re-read a closed hypothesis on new rows --
+# exactly the "keep testing until the interval cooperates" move the single-look rule exists
+# to prevent. Withholding it costs nothing: H2's p_hat is recomputable from the stored
+# ensemble record whenever a comparison is genuinely wanted.
+FROZEN_MODELS = frozenset({"gefs_ensemble_raw", "gefs_station_bias_v1"})
 
 
 def resolve_models(rows: Sequence[dict[str, Any]], selected: Sequence[str] | None) -> set[str]:

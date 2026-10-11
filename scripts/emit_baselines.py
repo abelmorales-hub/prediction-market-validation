@@ -22,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 
 from src.analysis.emit import emit
 from src.analysis.horizons import horizon_points
-from src.analysis.weather import WeatherForecaster
+from src.analysis.station_bias import StationBiasForecaster
 from src.config import get_settings
 from src.storage.duckdb_views import connect as duck_connect
 from src.storage.supabase_repo import Repo, connect
@@ -78,10 +78,17 @@ def main() -> int:
 
     with connect(cfg.supabase_db_url) as conn:
         repo = Repo(conn)
-        # One catalogue read for the whole pass. H2 needs each market's strike, station
-        # and target day, and this job runs on a horizon that cannot be revisited — it
-        # does not get to spend that window on a query per point.
-        forecaster = WeatherForecaster(repo, repo.market_meta([p.market_id for p in points]))
+        # One catalogue read for the whole pass. The forecaster needs each market's strike,
+        # station and target day, and this job runs on a horizon that cannot be revisited —
+        # it does not get to spend that window on a query per point.
+        #
+        # H3 since 2026-10-11, and H2 is no longer emitted. H2 is closed: it lost G3, and
+        # the pre-declaration forbids re-testing it, so writing its rows would only create
+        # something to be tempted by. Nothing is lost by stopping — H2's p_hat is a pure
+        # function of the ensemble record and the strike, both stored, so it is
+        # recomputable from any H3 row at any time. What is never recomputable is a
+        # prediction that was not written, which is why H3 emits from the moment it exists.
+        forecaster = StationBiasForecaster(repo, repo.market_meta([p.market_id for p in points]))
         stats = emit(repo, points, closes, git_sha(), now, forecaster=forecaster)
     print("  ".join(f"{k}={v}" for k, v in stats.as_dict().items()))
     # Printed every run, including the zeroes. A model that quietly stops forecasting

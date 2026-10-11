@@ -33,9 +33,12 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from src.analysis.horizons import HorizonPoint
+from src.analysis.station_bias import MODEL_VERSION as H3_MODEL_VERSION
+from src.analysis.station_bias import StationBiasForecaster
 from src.config import get_settings
 from src.scoring.bootstrap import required_n
-from src.storage.supabase_repo import connect
+from src.storage.supabase_repo import Repo, connect
 
 FloatArray = NDArray[np.float64]
 
@@ -63,10 +66,53 @@ def _first_emission(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(seen.values())
 
 
+def _counterfactual_pairs(repo: Repo, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Recompute H3's p_hat on prices it has not been emitted against yet.
+
+    Sizing a study needs sigma_d *before* its window opens, and sigma_d needs (p_hat, m)
+    pairs -- but p_hat for a model that has not run yet is not in `predictions`. It is
+    recoverable: p_hat is a pure function of the stored ensemble record and the market's
+    strike, and the price comes off another model's row at the same instant. So the pairs
+    are rebuilt by running the real forecaster over reconstructed horizon points.
+
+    No outcome is read, which is what keeps this a power calculation rather than a look.
+    The honest caveat runs the other way: the offsets were fitted on days this sample
+    overlaps, so |p_hat - m| is likely *smaller* here than it will be out of sample. Since
+    n grows as that disagreement shrinks, the n this produces errs large.
+    """
+    forecaster = StationBiasForecaster(repo, repo.market_meta([str(r["market_id"]) for r in rows]))
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        ts = row["ts"]
+        point = HorizonPoint(
+            market_id=str(row["market_id"]),
+            horizon_label=str(row["horizon_label"]),
+            # Only market_id and ts reach the forecaster. The rest is price context, and
+            # the price that matters is the stored one, carried through below.
+            target=ts,
+            ts=ts,
+            mid=float(row["market_mid"]),
+            bid=float(row["market_mid"]),
+            ask=float(row["market_mid"]),
+        )
+        forecast = forecaster(point).get(H3_MODEL_VERSION)
+        if forecast is None:
+            continue
+        out.append({**row, "p_hat": forecast.p_hat})
+    print("recomputed: " + "  ".join(f"{k}={v}" for k, v in forecaster.stats.as_dict().items()))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="gefs_ensemble_raw", help="model_version to size")
     ap.add_argument("--selfcheck", action="store_true", help="run the maths check and exit")
+    ap.add_argument(
+        "--counterfactual",
+        action="store_true",
+        help=f"size {H3_MODEL_VERSION} instead: keep --model's prices and timestamps but "
+        "recompute p_hat from the stored ensembles, for a model that has not emitted yet",
+    )
     args = ap.parse_args()
 
     if args.selfcheck:
@@ -92,6 +138,8 @@ def main() -> int:
             (args.model,),
         )
         rows = _first_emission(list(cur.fetchall()))
+        if args.counterfactual:
+            rows = _counterfactual_pairs(Repo(conn), rows)
 
     if not rows:
         print(f"no predictions for model_version={args.model!r}")

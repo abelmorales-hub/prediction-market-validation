@@ -977,3 +977,134 @@ of the whole apparatus: a forecast a reasonable person would have expected to ca
 information does not beat the price of a market that already knows the station bias. The
 scorer, the gates, σ_d, the sample freeze and the refusal guard all worked; what they were
 measuring did not.
+
+### Amendment 13 — 2026-10-11, H3: the station-corrected ensemble, pre-registered
+
+A new hypothesis, a new `model_version`, a new window, and a new host. §4 forbids searching
+for a different category, horizon or model *after* a failure, and this does not do that: the
+category, horizon, endpoint, benchmark and pass conditions are all unchanged. What changes is
+one modelling defect that Amendment 12 identified and measured, corrected on data that can
+never serve as a test set again.
+
+**H3.** `model_version = gefs_station_bias_v1`. The GEFS ensemble with a constant per-station
+offset added to every member before the strike arithmetic. `src/models/station_bias.py` (the
+twenty offsets, generated) and `src/analysis/station_bias.py` (the forecaster) are H3's frozen
+pair, exactly as `src/models/weather.py` and `src/analysis/weather.py` are H2's. Verify with
+`git log <this amendment's commit>..HEAD -- src/models/station_bias.py
+src/analysis/station_bias.py`, which must stay empty. Changing an offset is a new
+`model_version` and a new amendment, never an edit.
+
+The forecaster **inherits** `WeatherForecaster` rather than copying it, so H3 provably shares
+H2's point-in-time rule — `latest_ensemble_before(station, settles_on, point.ts)`, the one line
+where a look-ahead leak could enter — instead of a duplicate that could drift. The members
+move, not the strikes: shifting floor and cap by minus the offset is equivalent only for a
+whole-degree offset, because settlement is an integer and members are rounded half-up first.
+
+**The training data, and the cutoff that matters.** 545 pinned station-days settling on or
+before **2026-10-08**, fitted by `scripts/fit_station_bias.py`. Two sources, both unusable as a
+test set and therefore free:
+
+- days before 2026-09-20, never part of any sample (Amendment 10);
+- days inside the frozen G3 window, spent — their outcomes have been read, so nothing fitted
+  by anyone who has seen `docs/g3_result.md` can be tested on them again.
+
+The target is the settlement temperature **read off the resolved ladder itself**, not from any
+external feed: the ladder is the settlement expressed as inequalities, so intersecting them has
+no proxy error against the quantity the venue actually paid on. One bug is recorded because its
+canary is the only reason it is not in the offsets: keying ladders on `(station, settles_on)`
+merges the day's *minimum* ladder with its maximum (`KXLOWTATL` beside `KXHIGHTATL`), and 379
+of 649 ladders came out contradictory, with 6–13 °F spreads and a −7.75 °F Central Park offset
+that looked like output. Filtering to `KXHIGH` takes contradictions to 0, days fitted to 545
+and spreads to 1.3–3.4 °F.
+
+The offsets are physically coherent, which is the first *independent* support for Amendment
+12's diagnosis: Phoenix +3.5 and Las Vegas +3.1 (desert stations hotter than a 0.25° cell
+average), SFO −2.6 and Central Park −1.75 (coastal and park stations cooler). Mean |offset|
+≈ 1.6 °F against 2 °F-wide buckets is exactly how a forecast ends up confidently on the wrong
+rung.
+
+**Power, measured without outcomes.** `scripts/sigma_d.py --counterfactual` recomputes H3's p̂
+from the stored ensembles against the prices already on H2's rows — p̂ is a pure function of
+the ensemble record and the strike, so no new emission and no outcome is needed. Over 1,314
+pairs in 452 families:
+
+| | H2 | H3 |
+|---|--:|--:|
+| mean \|p̂ − m\| | 0.1900 | **0.1588** |
+| σ_d | 0.2424 | **0.2092** |
+| δ = mean(D²) | 0.0673 | **0.0509** |
+| required effective n | 102 | **133** |
+
+**σ_d = 0.2092 and δ = 0.0509 are pre-committed here.** The correction shrinks disagreement
+with the market by only ~16%, so H3 still bets far from the price and the test stays easy to
+power: 133 effective observations, against a design effect of 1.04 measured on the G3 sample.
+One caveat in the conservative direction — the offsets were fitted on days this sizing sample
+overlaps, so out of sample |p̂ − m| is likely *larger*, and n scales as its inverse square, so
+the n below errs large.
+
+> **The window is [2026-10-13T00:00:00Z, 2026-11-12T00:00:00Z) — thirty days.** The sample is
+> every `gefs_station_bias_v1` T-24h prediction stamped inside it, in Climate and Weather, less
+> any market carrying a CRITICAL gap in its own dense window. Rows stamped before the open are
+> shakeout and excluded, the same way the pre-2026-09-20 rows were.
+>
+> **Pre-committed minimum n = 400 nominal observations**, which is §6's ×3 clustering inflation
+> applied to the 133 rather than the measured 1.04 — conservative on purpose, because a design
+> effect measured on one sample is not a promise about the next.
+
+**Thirty days is not a power requirement and must not be defended as one.** At the observed
+~46 observations/day the minimum n arrives in about nine days, and power alone would be
+satisfied in three. The window is thirty days because the G3 sample's narrowness — eighteen
+days of one season in twenty cities — is the limitation most likely to make a *positive* result
+fail to replicate, and a nine-day window would reproduce it. The thirty days buy the autumn
+regime change (US DST ends 2026-11-01, inside the window). Stopping early because n arrived
+early would be the thing §4's stopping rule forbids, wearing a different hat.
+
+**The run.** Once, at the window close, with the command fixed here:
+
+    uv run python -m scripts.score --model gefs_station_bias_v1 --horizon T-24h \
+      --since 2026-10-13T00:00:00Z --until 2026-11-12T00:00:00Z \
+      --exclude docs/h3_excluded_markets.txt --out reports/h3.md --require-n 400
+
+Pass requires all four of §4's conditions, unchanged: mean(d) > 0; the clustered bootstrap 95%
+CI by `event_family` excluding zero; effective n ≥ 133; and the improvement surviving exclusion
+of the `[0, 0.05] ∪ [0.95, 1]` buckets. Failure closes H3 and is publishable. `FROZEN_MODELS`
+now withholds H3 as well as H2, so an unqualified scorer run cannot spend the look.
+
+**H2 stops being emitted, and stays withheld.** It is closed; emitting it would only create
+something to be tempted by, and re-reading a closed hypothesis on new rows is the "test until
+the interval cooperates" move the single-look rule exists to prevent. Nothing is lost: H2's p̂
+is recomputable from the stored ensemble record whenever a raw-versus-corrected comparison is
+genuinely wanted, which is how the sizing above was done.
+
+**The host changes, and G0's criterion changes with it.** Collection moves to GitHub Actions
+(`.github/workflows/collect.yml`). The desktop lost 5 of 37 band-days and three of those were
+the same unexplained failure to wake, including one unbroken 47-hour sleep across 10-10 and
+10-11 — with `WakeToRun` and `RTCWAKE` both verified correct. A runner cannot sleep, so the
+dominant failure class is removed rather than mitigated. Consequences for the gate:
+
+- **The band is now 03:20–09:10 UTC**, two overlapping shifts, and G0 for this window is
+  `gap_report --since 2026-10-13T00:00:00Z --band 03:20-09:10 --tz UTC`. Amendment 10's
+  band-day accounting carries over unchanged.
+- **UTC removes a seam nobody had noticed.** The old band was declared in Europe/Madrid local
+  time, and Madrid leaves DST on 2026-10-25 — inside this window. The band would have shifted
+  an hour against the market close times halfway through, silently.
+- `--until` is now an absolute instant rather than a tick count, which fixes the defect behind
+  the 09-20 and 10-01 overruns; Parquet part names carry a content token so two overlapping
+  shifts cannot collide on a path; and the snapshot store is tracked, so its point-in-time claim
+  is a GitHub commit timestamp instead of an assurance.
+- **Days on the old host, if any, are recorded rather than excluded.** The window opens on a
+  fixed instant and the Windows tasks keep collecting until the Actions band is verified, so the
+  first days may be mixed-host. That is an operational fact about the window, not a property of
+  an observation, and it is disclosed with the result.
+
+**What this does not touch.** The endpoint, the benchmark (P1), the horizon, the category, the
+universe, the exclusion rule, the scorer, the single-run rule, H2's frozen files, and
+Amendment 11's finding that no observation in the G3 sample was paired with a stale price.
+
+**The standing objection.** A second study by the same party after the first one failed is how
+a null becomes a discovery, and no amendment can fully answer that. What is offered instead:
+the correction is fitted only on rows that can never judge it, the cutoff is recorded inside
+the generated file, σ_d and δ are fixed here before any H3 outcome exists, n and the window and
+the command are fixed here, the scorer withholds H3 by default, and the one declared reason for
+collecting thirty days when nine would do is written down above so that stopping early would be
+visibly a violation rather than a judgement call.
