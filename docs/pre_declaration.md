@@ -915,3 +915,65 @@ than an argument, that the selection residual is stated rather than minimised, t
 run condition and command are fixed in advance, and that no outcome of the sample was read
 in writing it. Read it with Amendments 8 and 10 and judge for yourself whether the window
 was earned.
+
+### Amendment 12 — 2026-10-11, the single run is spent: G3 fails and H2 is closed
+
+The run declared in Amendment 11 was taken once, at **2026-10-11 17:06 UTC**, on the
+frozen sample, with the command fixed there. The report is `docs/g3_result.md`. H2 does
+not merely fail to beat the market — it is **far worse** than the market, and the result
+is not close enough to be a question of power.
+
+| stratum | n | families | eff. n | mean(d) | 95% CI | BSS | ECE | AUC |
+|---|--:|--:|--:|--:|:--:|--:|--:|--:|
+| overall | 778 | 263 | 746 | **−0.1008** | [−0.1185, −0.0839] | −0.7848 | 0.171 | 0.532 |
+| tails excluded | 631 | 257 | 587 | **−0.1149** | [−0.1362, −0.0943] | −0.7264 | 0.210 | 0.479 |
+
+**Against §4's four conditions: 1 fails, 2 fails, 3 passes, 4 is moot.** `mean(d) > 0` is
+false and the sign is wrong, not small; the CI excludes zero *on the wrong side*;
+effective n is 746 against the 143 Amendment 11 required, so the study had ample power and
+used it to measure a loss; and there is no improvement for the tail exclusion to survive —
+removing the tails makes H2 worse, which is the opposite of the longshot artifact §4.2
+guards against. **Failure. H2 is closed.** Per §4 this licenses no search for a different
+category, horizon or model, and in particular **no station-bias-corrected `model_version`
+may be fit on this sample**: these 778 rows are spent, and nothing fitted on them can ever
+be tested out of sample again.
+
+**The mechanism is the one the design notes predicted, and the numbers identify it rather
+than assume it.** Unadjusted grid output carries a station and elevation bias against The
+Weather Company observation the market settles on. The signature is miscalibration, not
+absence of signal: ECE 0.171 against the market's 0.049 on the same rows, while AUC is
+0.532 overall and **0.389–0.479 inside every price bucket** — at or below chance once the
+bucket has removed the market's own ordering. A model with the right information and the
+wrong offset looks exactly like this. The −46.24 BSS in [0.00, 0.05] is the same fact at
+its most expensive: 147 rows where the market says ~0, H2 says otherwise, and the market
+is right.
+
+**Two deviations from Amendment 11's run condition, both recorded, neither affecting the
+sample.** The `pmv-g3` task never fired on 2026-10-10: **2026-10-10 and 2026-10-11 were
+both total collection losses** (no in-band snapshot at all, machine not awake), and the
+task carries `StartWhenAvailable = $false` by design, so the missed occurrence was not
+caught up. The run therefore happened **17 hours past the 2026-10-11T00:00:00Z fallback
+instant**, by hand, through `scripts/g3_run.ps1` — the declared instrument, which inlines
+the command verbatim and has since unregistered itself. Second, the 05:30 resolution
+sweeps of 10-10 and 10-11 did not happen either, so `watch_resolutions --catalogue` was
+run first and wrote 263 outcomes. Both deviations move in the same harmless direction: the
+cut at 2026-10-08T09:30:00Z is a fixed instant and nothing could enter the sample, while
+the delay raised the **resolved** count from Amendment 11's 675 to **778 of 778** — every
+clean nominal row now has an outcome, so the pre-committed 715 was met on resolved
+observations and the fallback's shortfall clause is moot. Confirmed before the look by a
+run with `--require-n 999999`, which refuses before `build_report` and so spends nothing:
+it printed the census and 778, and scored nothing.
+
+**What the limitations can and cannot do to this verdict.** Amendment 11's selection
+residual stands — 102 flagged markets have no row, and flagged markets disagree with the
+market more than kept ones (median |p̂ − m| 0.200 vs 0.137) — and its direction is still
+unknown. It cannot plausibly account for a −0.10 mean paired difference whose CI clears
+zero by 0.08 with an AUC at chance. The G0 ledger is red and Amendment 11's case for
+proceeding anyway was written by the interested party; note that the window it bought
+produced a null, which is the outcome that argument had the least incentive to produce.
+
+**Publishable as a negative result**, which §4 declared in advance and which is the point
+of the whole apparatus: a forecast a reasonable person would have expected to carry
+information does not beat the price of a market that already knows the station bias. The
+scorer, the gates, σ_d, the sample freeze and the refusal guard all worked; what they were
+measuring did not.
