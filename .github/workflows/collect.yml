@@ -52,8 +52,17 @@ permissions:
 # reports nothing, so `actions/workflows` returned total_count 0 while the file sat on the
 # default branch and `yaml.safe_load` parsed it happily. The secret lives on each job,
 # where the `secrets` context is actually available.
+# The rest of the configuration is not secret, and `get_settings()` bakes in no defaults
+# on purpose -- so a runner with no `.env` fails validation at startup rather than
+# silently pointing at the wrong host. Copied verbatim from the tracked `.env.example`;
+# the old trading-api.kalshi.com host returns 401 with a migration notice, so the URL
+# below is the live one.
 env:
   PYTHONUNBUFFERED: '1'
+  KALSHI_BASE_URL: https://api.elections.kalshi.com/trade-api/v2
+  GEFS_BASE_URL: https://ensemble-api.open-meteo.com
+  HTTP_TIMEOUT_S: '10.0'
+  DATA_DIR: data
 
 jobs:
   # Run this first, by hand, before trusting any of the above. Kalshi sits behind
