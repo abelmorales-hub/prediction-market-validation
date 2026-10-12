@@ -1108,3 +1108,83 @@ the generated file, σ_d and δ are fixed here before any H3 outcome exists, n a
 the command are fixed here, the scorer withholds H3 by default, and the one declared reason for
 collecting thirty days when nine would do is written down above so that stopping early would be
 visibly a violation rather than a judgement call.
+
+### Amendment 14 — 2026-10-12, the window slips to 2026-10-16: the new host's scheduler does not fire
+
+**Amendment 13's central operational claim was false within a day of being written.** It says
+collection moves to GitHub Actions. On 2026-10-12, the first day the new host was live, the
+band did not run once. The window therefore opens **three days later**, because a
+pre-registration whose stated collector is not the real one is worth less than one that waits.
+
+**What was observed.** Four cron entries in one workflow file, over the first twelve hours:
+
+| cron | purpose | runs |
+|---|---|---|
+| `5 * * * *` | GEFS, hourly | 3, at :48, :18 and :38 |
+| `20 3 * * *` | band shift A | **0** |
+| `10 6 * * *` | band shift B | **0** |
+| `30 10 * * *` | resolutions | **0** |
+
+Amendment 13 reasoned about the wrong failure. It argued -- correctly -- that Actions is
+*late*, and that lateness is survivable because the collector is a window rather than an
+alarm, so a late start eats margin in front of the window while `--until` keeps the end
+fixed. What happened was **omission**. The events never fired, and no margin, timeout or
+deadline can absorb a trigger that does not occur. The margins were sound and aimed at the
+wrong thing.
+
+**The compute was never in doubt and is not being blamed.** A manually dispatched band on
+2026-10-11 ran 12m29s, swept Kalshi at `polled=161 written=161 failed=0`, honoured its
+absolute deadline, committed its Parquet and pushed first try. The preflight passes from an
+Azure runner. What failed is the scheduler, and only the scheduler.
+
+**One change, to test one hypothesis.** The only entry that fired was the hourly one, at
+minutes unrelated to its own, so the hypothesis is that an hourly cron starves the
+specific-time entries sharing its file. `collect.yml` is split into `band.yml` (the two band
+crons, nothing else) and `feeds.yml` (the hourly cron, plus a watchdog). **The cron times are
+deliberately unchanged**, so the next three days test the file structure rather than a
+reshuffle, and the band declared below stays the one that was declared. `30 10 * * *` stays
+beside the hourly cron as a control: if it fires while the band also fires, the
+file-splitting explanation is wrong and the real cause is still unknown.
+
+**The silence was worse than the failure.** No band ran, and nothing said so -- it was found
+by a person looking at a dashboard. `feeds.yml` gains a watchdog that rides the one trigger
+known to fire, judges only after 10:00 UTC, and **fails on purpose** when no band succeeded
+that day, because a failed scheduled workflow is the one thing GitHub emails about
+unprompted. This is the fifth time in this project that a component answered an easier
+question than the one asked, and the second time the remedy was to make absence noisy.
+
+> **The window moves to [2026-10-16T00:00:00Z, 2026-11-15T00:00:00Z) — still thirty days.**
+> Every other term of Amendment 13 is unchanged: the sample definition, σ_d = 0.2092,
+> δ = 0.0509, required effective n = 133, minimum n = 400, the four pass conditions, the
+> single-run rule, the frozen files, and the training cutoff of 2026-10-08. H3 keeps emitting
+> in the meantime and those rows are shakeout, excluded exactly as the pre-2026-10-13 ones
+> would have been.
+
+The run command changes only in its two instants:
+
+    uv run python -m scripts.score --model gefs_station_bias_v1 --horizon T-24h \
+      --since 2026-10-16T00:00:00Z --until 2026-11-15T00:00:00Z \
+      --exclude docs/h3_excluded_markets.txt --out reports/h3.md --require-n 400
+
+**Both hosts collect, and the sample is the union.** The desktop is not retired until the
+Actions band has proven itself; on 2026-10-12 it did the whole job alone — 10,083 snapshots
+across 311 markets, 96.5% capture, 2 CRITICAL gaps, and **the first H3 rows ever written:
+118 at T-24h across 59 markets**, 04:56–07:59 UTC. Mixed-host days are an operational fact
+about the window rather than a property of any observation, and they travel with the result.
+
+**G0's band for this window is 03:30–09:10 UTC**, judged by
+`gap_report --since 2026-10-16T00:00:00Z --band 03:30-09:10 --tz UTC`, with Amendment 10's
+band-day accounting unchanged. That interval is the Actions shifts' span narrowed to the
+desktop's start, so it is covered whichever host runs.
+
+**One obligation, written down because this project has twice been bitten by a dated chore
+nobody remembered.** The desktop's band is declared in Europe/Madrid local time, and Madrid
+leaves DST on **2026-10-25, inside this window**: its 05:30 start moves from 03:30 UTC to
+04:30 UTC, an hour *after* the band declared above. From that date the 03:30–04:30 UTC slice
+— which contains the T-24h instants of every Eastern-time station — is covered only if
+Actions is working. The remedy needs no dated action and is recommended rather than applied:
+widen the desktop band to start 04:30 local, putting its UTC start at 02:30 before the change
+and 03:30 after, inside the declared band in both regimes. If neither that nor a working
+Actions band is in place by 2026-10-25, the days after it carry a one-hour band mismatch that
+must be disclosed with the result rather than quietly judged against a band nobody was
+collecting in.
