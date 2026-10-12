@@ -1,0 +1,138 @@
+name: feeds
+
+# The jobs whose lateness does not matter, plus a watchdog for the one whose does.
+#
+# Split from collect.yml on 2026-10-12. The band moved to band.yml because the hourly cron
+# below appears to have starved the specific-time schedules sharing its file: over the
+# first 12 hours only `5 * * * *` ever fired, three times, at :48, :18 and :38, while the
+# two band crons and the resolution cron fired not once. If that diagnosis is right, the
+# hourly entry is the aggressor, so it stays here, away from the band.
+#
+# `30 10 * * *` is kept here anyway, as the second half of the same experiment: it is a
+# specific-time cron still sharing a file with the hourly one, so if it fires tomorrow
+# while the band also fires, the file-splitting story is wrong and something else is going
+# on. Resolutions are backfillable, which makes this the one schedule that can afford to
+# be the control group.
+
+on:
+  schedule:
+    - cron: '5 * * * *'     # GEFS, hourly
+    - cron: '30 10 * * *'   # resolutions, after the band
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'which job to run by hand'
+        type: choice
+        options: [preflight, gefs, resolutions, watchdog]
+        default: preflight
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+  KALSHI_BASE_URL: https://api.elections.kalshi.com/trade-api/v2
+  GEFS_BASE_URL: https://ensemble-api.open-meteo.com
+  HTTP_TIMEOUT_S: '10.0'
+  DATA_DIR: data
+
+jobs:
+  # Before trusting anything here: Kalshi sits behind Cloudflare, and this project has met
+  # one venue that resolved in DNS and then reset every TLS handshake from a particular
+  # network. Verified passing from an Azure runner on 2026-10-11.
+  preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.job == 'preflight'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run python -m scripts.preflight
+
+  # Hourly, and the cadence is the point: a prediction uses the newest ensemble that
+  # existed before it, so this bounds how stale that can be. The endpoint does not report
+  # its own run's init time, which means point-in-time integrity rests entirely on the row
+  # having been written live. It cannot be backfilled.
+  gefs:
+    if: >-
+      github.event.schedule == '5 * * * *' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'gefs')
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    timeout-minutes: 20
+    concurrency:
+      group: gefs
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run python -m scripts.fetch_gefs
+
+  # Outcomes are the one thing here that can be backfilled, so this is the job whose
+  # lateness genuinely does not matter.
+  resolutions:
+    if: >-
+      github.event.schedule == '30 10 * * *' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'resolutions')
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    timeout-minutes: 30
+    concurrency:
+      group: resolutions
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run python -m scripts.watch_resolutions --catalogue
+
+  # A missing band is currently silent, which is the worst property of the whole
+  # arrangement: 2026-10-12 produced no band run at all and nothing said so -- it was found
+  # by a person looking. This rides the only trigger known to fire, so it inherits that
+  # trigger's reliability instead of needing its own, and it **fails on purpose** when the
+  # band is missing, because a failed scheduled workflow is the one thing GitHub emails
+  # about unprompted.
+  #
+  # It only judges after 10:00 UTC, by which time shift B should have finished, so a
+  # morning before the band is not an alarm.
+  watchdog:
+    if: >-
+      github.event.schedule == '5 * * * *' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'watchdog')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: a band must have succeeded today
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          hour=$(date -u +%H)
+          today=$(date -u +%Y-%m-%d)
+          if [ "${hour#0}" -lt 10 ]; then
+            echo "it is ${hour}:xx UTC; shift B is not due to have finished. Not judging."
+            exit 0
+          fi
+
+          runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow band.yml \
+                   --status success --limit 20 --json createdAt \
+                   --jq "[.[] | select(.createdAt | startswith(\"$today\"))] | length")
+          echo "successful band runs on ${today}: ${runs}"
+          if [ "$runs" -eq 0 ]; then
+            echo "::error::No band run succeeded on ${today}. The desktop collector may" \
+                 "have covered the window, but Actions did not."
+            exit 1
+          fi

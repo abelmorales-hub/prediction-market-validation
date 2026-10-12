@@ -1,0 +1,150 @@
+name: band
+
+# Split out of collect.yml on 2026-10-12, after the band crons did not fire once.
+#
+# What was observed over the first 12 hours, with all four schedules in one file:
+#
+#   cron            purpose            fired
+#   5 * * * *       GEFS hourly        3 times in 12 h, at :48, :18 and :38
+#   20 3 * * *      band shift A       never
+#   10 6 * * *      band shift B       never
+#   30 10 * * *     resolutions        never
+#
+# That is not the flat "schedules run late" picture the margins below were sized for. The
+# only entry that fired was the hourly one, at minutes unrelated to its own, while every
+# specific-time entry was ignored. The hypothesis is that an hourly cron in the same file
+# dominates its neighbours, so this file now holds the band schedules and nothing else.
+# The cron times are deliberately unchanged -- one variable moves, so tomorrow is a test
+# rather than a reshuffle, and the G0 band declared in Amendment 13 stays accurate.
+#
+# Everything is UTC. The US ladders' T-24h instants fall in 04:00-09:00 UTC across the
+# study, moving an hour when US DST ends on 2026-11-01; the range covers both sides.
+#
+#   shift A   fires 03:20Z, runs to 06:50Z   -> 40 min of margin ahead of 04:00
+#   shift B   fires 06:10Z, runs to 09:10Z   -> 40 min of overlap with A
+#
+# The margins absorb *lateness*: the collector is a window, not an alarm, sweeping on a
+# ~60 s cadence, so a late start eats slack in front of the window, and `--until` is an
+# absolute instant so the end never moves. They do not absorb *omission*, which is what
+# actually happened, and no workflow-level setting can.
+
+on:
+  schedule:
+    - cron: '20 3 * * *'    # shift A
+    - cron: '10 6 * * *'    # shift B
+  workflow_dispatch:
+    inputs:
+      until:
+        description: 'UTC HH:MM to stop at'
+        default: '09:10'
+
+permissions:
+  contents: write
+
+# Workflow-level `env` may read github, inputs and vars -- **not secrets**. With the
+# database URL here GitHub refused the file outright and reported nothing: the Actions API
+# returned zero workflows while the file sat on the default branch. The secret lives on the
+# job. The rest is not secret, and `get_settings()` bakes in no defaults on purpose, so a
+# host pointing at the wrong venue fails validation instead of collecting plausible rows
+# from somewhere else.
+env:
+  PYTHONUNBUFFERED: '1'
+  KALSHI_BASE_URL: https://api.elections.kalshi.com/trade-api/v2
+  GEFS_BASE_URL: https://ensemble-api.open-meteo.com
+  HTTP_TIMEOUT_S: '10.0'
+  DATA_DIR: data
+
+jobs:
+  band:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    # Generous against the 3h30m shift: the deadline ends the run, not this.
+    timeout-minutes: 230
+    # Keyed per schedule, not per workflow: a second copy of the *same* shift is a
+    # duplicate, but A and B are supposed to overlap.
+    concurrency:
+      group: band-${{ github.event.schedule || inputs.until }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The Parquet store is committed here, so the push below has to rebase onto
+          # whatever the other shift pushed. Full history keeps that simple; revisit if
+          # the checkout gets slow as the store grows (~1.5 MB/day).
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+
+      - name: pick this shift's deadline
+        id: window
+        run: |
+          case "${{ github.event.schedule }}" in
+            '20 3 * * *') end='06:50' ;;
+            '10 6 * * *') end='09:10' ;;
+            *)            end='${{ inputs.until }}' ;;
+          esac
+          echo "deadline=$(date -u +%Y-%m-%d)T${end}:00+00:00" >> "$GITHUB_OUTPUT"
+
+      - name: snapshot the books, emitting predictions alongside
+        run: |
+          set -uo pipefail
+          deadline='${{ steps.window.outputs.deadline }}'
+          echo "collecting until ${deadline}"
+
+          # These two must share a filesystem: emit_baselines reads the snapshot the
+          # snapshotter just wrote, through DuckDB, off local Parquet. That is why they
+          # are one job and not two.
+          uv run python -m scripts.snapshot --until "$deadline" --tick 60 \
+            > snapshot.log 2>&1 &
+          snap=$!
+
+          # A prediction cannot be backfilled -- the database refuses one stamped at or
+          # after its market's close -- so a horizon that passes without emit running is
+          # gone for good. It runs every 4 minutes for as long as the snapshotter lives,
+          # and a failed pass is logged and retried rather than fatal.
+          while kill -0 "$snap" 2>/dev/null; do
+            uv run python -m scripts.emit_baselines >> emit.log 2>&1 \
+              || echo "$(date -u +%H:%M:%S) emit failed, continuing" >> emit.log
+            sleep 240
+          done
+          wait "$snap" || echo 'snapshotter exited non-zero; see snapshot.log'
+
+          tail -n 5 snapshot.log emit.log || true
+
+      - name: commit the snapshots
+        run: |
+          set -euo pipefail
+          git config user.name  'pmv-collector'
+          git config user.email 'pmv-collector@users.noreply.github.com'
+          git add data/snapshots
+          if git diff --cached --quiet; then
+            echo 'no new snapshots to commit'
+            exit 0
+          fi
+          git commit -q -m "data: snapshots $(date -u +%Y-%m-%d) (${{ github.event.schedule || 'manual' }})"
+          # The other shift may have pushed while this one collected. Part filenames carry
+          # a content token precisely so this rebase can never collide on a path.
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin "${GITHUB_REF_NAME}" \
+              && git rebase -q "origin/${GITHUB_REF_NAME}" \
+              && git push -q origin "HEAD:${GITHUB_REF_NAME}" \
+              && { echo "pushed on attempt ${attempt}"; exit 0; }
+            echo "push attempt ${attempt} failed, retrying"
+            sleep 15
+          done
+          echo 'could not push the snapshots'
+          exit 1
+
+      - name: keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: band-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            snapshot.log
+            emit.log
+          retention-days: 14
+          if-no-files-found: ignore
