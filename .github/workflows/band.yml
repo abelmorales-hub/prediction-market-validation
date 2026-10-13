@@ -64,7 +64,14 @@ env:
 
 jobs:
   band:
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`. GitHub annotated a run on 2026-10-13 with "the
+    # ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026" -- three
+    # days after the window opens and twenty-seven before it closes. The collection
+    # apparatus is supposed to hold still for the whole window, and an image that changes
+    # Python, glibc or the TLS stack underneath a running study is the sort of uncontrolled
+    # variable everything else here is pinned against. 24.04 is what the runs so far
+    # actually used, so this freezes the observed host rather than choosing a new one.
+    runs-on: ubuntu-24.04
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     # Generous against the 3h30m shift: the deadline ends the run, not this.

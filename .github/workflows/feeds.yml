@@ -52,7 +52,7 @@ jobs:
   # network. Verified passing from an Azure runner on 2026-10-11.
   preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.job == 'preflight'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     timeout-minutes: 10
@@ -72,7 +72,7 @@ jobs:
     if: >-
       github.event.schedule == '5 * * * *' ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'gefs')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     timeout-minutes: 20
@@ -93,7 +93,7 @@ jobs:
     if: >-
       github.event.schedule == '30 10 * * *' ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'resolutions')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     timeout-minutes: 30

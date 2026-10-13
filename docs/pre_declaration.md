@@ -1341,3 +1341,12 @@ the cron that fires it) rather than merely to pass.
   a one-hour band mismatch that must be disclosed with the result.
 - **The desktop's sleep failures are unmitigated.** 2026-10-10 and 2026-10-11 were both total
   losses, pre-window and therefore free; the same failure inside the window is not.
+
+**Addendum, same day: the runner image is pinned.** A dispatch run on 2026-10-13 carried the
+annotation *"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026"* —
+three days after the window opens and twenty-seven before it closes. All four jobs in
+`band.yml` and `feeds.yml` now say `runs-on: ubuntu-24.04`, which is the image those runs were
+already getting, so this freezes the observed host rather than choosing a new one. An image
+that changes Python, glibc or the TLS stack underneath a running study is the same class of
+uncontrolled variable as a model edited after freezing, and the venue here has already shown
+it is sensitive to connection-level behaviour.
