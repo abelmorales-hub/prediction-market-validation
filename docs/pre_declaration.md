@@ -1188,3 +1188,73 @@ and 03:30 after, inside the declared band in both regimes. If neither that nor a
 Actions band is in place by 2026-10-25, the days after it carry a one-hour band mismatch that
 must be disclosed with the result rather than quietly judged against a band nobody was
 collecting in.
+
+### Amendment 15 — 2026-10-12, the watchdog moves to the desktop: it was watching the wrong host, from the wrong trigger
+
+No research parameter changes here. The hypothesis, the window
+[2026-10-16T00:00:00Z, 2026-11-15T00:00:00Z), σ_d, δ, the effective-n and minimum-n
+thresholds, the pass conditions, the frozen files and G0's declared 03:30–09:10 UTC band are
+all exactly as Amendment 14 left them. This records an operational change, and it is written
+down only because Amendment 14 declared the watchdog in prose, so leaving the doc unamended
+would describe a component the repository no longer contains.
+
+**Amendment 14's watchdog was wrong twice, and the second fault is fatal.** It was declared
+hours earlier the same day, which is the honest measure of how fast a diagnosis can go stale.
+
+1. *It judged the wrong host.* The check was
+   `gh run list --workflow band.yml --status success`, so its question was "did **Actions**
+   collect today". The question worth asking is "did **the collector** collect today", and on
+   2026-10-12 those had opposite answers: the desktop wrote 10,083 snapshots at 96.5% capture
+   while Actions ran no band at all. A watchdog that reads red on the project's best day of
+   collection is not a watchdog.
+2. *It rode a trigger that stopped firing.* It was deliberately attached to the hourly
+   `5 * * * *` cron on the stated grounds that this was "the only trigger known to fire". By
+   17:26 UTC that cron had missed **six consecutive hourly slots** since the split landed at
+   11:12 UTC, and `band.yml` and `feeds.yml` had zero scheduled runs between them. A manual
+   `workflow_dispatch` of `feeds.yml` succeeded in 20s — DNS, TLS and HTTP all green from the
+   runner — so the workflow is valid and dispatchable, and only the scheduler is at fault.
+
+**This is the sixth time a component here answered an easier question than the one asked**,
+and the first time the component was itself the remedy for the fifth. The pattern is now
+specific enough to state as a rule: *a check must observe the thing that does the work, not a
+proxy for it, and must run on a trigger independently known to fire.* Amendment 14's watchdog
+violated both halves while being introduced to fix a silence.
+
+**What replaces it.** `scripts/band_check.ps1`, Task Scheduler task `pmv-band-check`, daily at
+11:33 local — three minutes after the desktop band closes, so Amendment 10's ledger has a
+whole closed band to judge. It reads the Parquet the collector just wrote, via
+`gap_report --liveness`, and its exit code is the verdict: 0 alive, 1 BAND LOST, 2
+misconfigured. Task Scheduler is the trigger, chosen because it demonstrably fired every
+collector job on the day Actions fired none. The alarm is a desktop toast plus
+`LastTaskResult`, and `supervisor.ps1 -Status` now reports it — along with `pmv-g0-check`,
+which had been registered but absent from the status loop's task list and so invisible to it.
+
+**`--liveness` is a new flag, and it deliberately answers less than `gap_report` does.** It
+reports only whether the last closed band captured anything, ignoring gap severity entirely.
+That narrowness is the point, and it is the one design decision here worth defending: today's
+band was healthy and *still* carried 2 CRITICAL gaps of about 2.9 minutes against the 2.5×
+tolerance. An alarm wired to gap severity would have fired on that morning, and on most
+mornings, which is the permanent `1` that `supervisor.ps1` already warns cannot flag
+anything. So the two gates stay separate and neither subsumes the other: **`pmv-band-check`
+asks whether the collector ran, `pmv-g0-check` asks whether what it collected is clean.**
+`band_days` and `find_gaps` were already split along this seam; this only exposes it to the
+scheduler. `tests/unit/test_band_liveness.py` pins the distinction by running identical data
+through both paths and asserting the verdicts differ.
+
+**The watchdog's band is the desktop's own 05:30–11:30 Europe/Madrid, not G0's declared
+03:30–09:10 UTC**, and the difference is deliberate: a liveness check asks whether the
+collector ran in the window it was configured to run in, so it must read the same constant
+`supervisor.ps1` schedules from. Judging liveness against the UTC research band would make the
+watchdog fire for a *band mismatch* — which is the DST obligation above, a disclosure matter —
+rather than for a dead collector. `band_check.ps1` is pinned, never hand-rolled, for the same
+reason `g0_check.ps1` is, and if `$BandStart`/`$BandDurationH` move, it moves with them.
+
+**What this does not fix, stated plainly.** Actions still does not fire on schedule, so the
+redundancy Amendment 14 relies on ("both hosts collect, and the sample is the union") is
+currently one host plus a manual dispatch. The DST obligation above is untouched and still
+falls due on 2026-10-25. And the watchdog is now only as reachable as the desktop it runs on:
+a machine that is off reports nothing, where the Actions watchdog would at least have been
+able to mail. That is a worse failure mode in theory and a better one in practice, because the
+desktop is the host that actually collects — but if Actions is ever fixed, a second watchdog
+there judging the *desktop's* committed Parquet would close the gap, and that is the right
+shape for it rather than the one retired here.

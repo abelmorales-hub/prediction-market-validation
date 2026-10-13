@@ -44,6 +44,13 @@ def main() -> int:
     )
     ap.add_argument("--tz", default="Europe/Madrid", help="timezone the band is expressed in")
     ap.add_argument(
+        "--liveness",
+        action="store_true",
+        help="answer only 'did the last closed band capture anything', ignoring gap "
+        "severity. This is the watchdog, not the G0 gate; see the note in main(). "
+        "Requires --band.",
+    )
+    ap.add_argument(
         "--critical-markets",
         metavar="PATH",
         help="write every market carrying a CRITICAL gap to PATH, one id per line. "
@@ -138,6 +145,37 @@ def main() -> int:
                 f"over {status.elapsed} elapsed"
             )
         print()
+
+    # The watchdog, and it is deliberately a *different question* from everything below.
+    #
+    # Tier 4 rule 3 asks what question a check actually answers. This one answers "did the
+    # collector run today" and nothing else. It must not answer "was today clean", because
+    # the alarm it replaces has to fire rarely enough to still be read: today's band was
+    # healthy -- 10,083 snapshots, 96.5% dense capture -- and still carried two CRITICAL
+    # gaps of ~2.9 min against a 2.5x tolerance. A liveness alarm wired to gap severity
+    # would have fired on that, and a watchdog that cries every morning is the permanent
+    # `1` that supervisor.ps1 already warns cannot flag anything.
+    #
+    # So CRITICAL gaps are the G0 gate's business (g0_check.ps1, cumulative, since the G0
+    # clock start) and a dead morning is this one's. Neither subsumes the other, exactly as
+    # `band_days` and `find_gaps` do not.
+    if args.liveness:
+        if band is None:
+            print("--liveness needs --band: without it there is no band to call lost.",
+                  file=sys.stderr)
+            return 2
+        if not ledger:
+            # No *closed* band in range yet. Not an alarm -- the same reasoning as the
+            # workflow watchdog's "shift B is not due to have finished" early exit.
+            print("no closed band in range yet; not judging.")
+            return 0
+        last = ledger[-1]
+        if not last.clean:
+            print(f"BAND LOST: {last.day} captured nothing in-band. The collector did not "
+                  f"run, or ran outside {args.band} {args.tz}.")
+            return 1
+        print(f"band alive: {last.day} captured {last.samples} in-band snapshots.")
+        return 0
 
     if not rows:
         # Never 0. This used to print "nothing to check" and pass, which is the same bug

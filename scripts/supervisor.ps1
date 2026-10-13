@@ -45,6 +45,11 @@ $RepoRoot   = Split-Path -Parent $PSScriptRoot
 $PythonExe  = Join-Path $RepoRoot '.venv\Scripts\python.exe'
 $LogDir     = Join-Path $RepoRoot 'logs'
 $ThisScript = $PSCommandPath
+# Its own file rather than a -Run job here, because it pins a gap_report invocation and
+# that discipline belongs next to g0_check.ps1's. verify-pmv Tier 3 forbids hand-rolling
+# one; a watchdog whose band drifted from the collector's would answer a question nobody
+# asked.
+$BandCheckScript = Join-Path $PSScriptRoot 'band_check.ps1'
 
 # The snapshotter holds one pooled connection and sweeps continuously, so a tick
 # only ever needs to notice that it died. The emitter is single-pass and must run
@@ -83,6 +88,27 @@ $SleepTaskName  = 'pmv-sleep'
 $SleepAt        = $BandEnd
 $SleepRetryMin  = 5
 $SleepRetryH    = 1
+
+# The band watchdog. Derived from $BandEnd rather than written as a literal, because it
+# has to run after the band *closes* -- band_days judges only whole closed bands, so an
+# earlier run reports "no closed band yet" and exits 0, which is a watchdog that passes
+# every day by construction.
+#
+# Three minutes of margin for the snapshotter's final flush(), and ahead of pmv-g0-check
+# at 11:35 so a lost morning is reported before the cumulative gate restates it.
+#
+# This is the local replacement for the `watchdog` job in .github/workflows/feeds.yml,
+# which judged `gh run list --workflow band.yml` -- GitHub's evidence, not the desktop's --
+# while riding the hourly Actions cron that stopped firing on 2026-10-12.
+$BandCheckTaskName = 'pmv-band-check'
+$BandCheckAt       = ([datetime]$BandEnd).AddMinutes(3).ToString('HH:mm')
+# pmv-g0-check is registered elsewhere, not by this script. Reported by -Status anyway: it
+# sat invisible here while $Tasks was the only list the status loop walked, which is the
+# same class of bug as the ValidateSet that silently broke pmv-gefs.
+$ScriptTasks = @(
+    @{ Name = $BandCheckTaskName; Log = 'band'; Note = 'band liveness; 1 = BAND LOST' }
+    @{ Name = 'pmv-g0-check';     Log = 'g0';   Note = 'cumulative G0 gate; 1 = NOT MET' }
+)
 
 $SnapshotIntervalMin = 15
 $EmitIntervalMin     = 4
@@ -253,6 +279,10 @@ function Invoke-SleepIfIdle {
 
 function Install-Tasks {
     if (-not (Test-Path $PythonExe)) { throw "venv python not found at $PythonExe -- run uv sync first" }
+    # Asserted, not assumed. Register-ScheduledTask accepts an action pointing at a file
+    # that does not exist, and the only symptom would be a daily result=1 that looks
+    # exactly like the BAND LOST verdict this task exists to report.
+    if (-not (Test-Path $BandCheckScript)) { throw "band_check.ps1 not found at $BandCheckScript" }
 
     # The snapshotter runs the whole band, so its kill timer must outlast the band or
     # Task Scheduler ends the process instead of letting it exit. Asserted rather than
@@ -354,6 +384,39 @@ function Install-Tasks {
     Write-Host ("registered $SleepTaskName  (from $SleepAt, retried every $SleepRetryMin min " +
                 "for ${SleepRetryH}h; skips while collecting or in use)")
 
+    # The watchdog. One shot a day, no repetition: the question is about a closed band, so
+    # asking it twice cannot change the answer, and a repeating alarm is one people learn
+    # to dismiss.
+    $bandCheckAction = New-ScheduledTaskAction -Execute 'powershell.exe' `
+        -Argument ("-NoProfile -NonInteractive -WindowStyle Hidden " +
+                   "-ExecutionPolicy Bypass -File `"$BandCheckScript`" -Notify") `
+        -WorkingDirectory $RepoRoot
+    $bandCheckSettings = New-ScheduledTaskSettingsSet `
+        -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
+        -DontStopOnIdleEnd `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries
+    # WakeToRun, unlike pmv-sleep's. pmv-sleep begins attempting at $BandEnd and may
+    # suspend the machine within three minutes of the band closing -- before this ever
+    # runs. Without the wake, the single day the watchdog is most likely to be needed (one
+    # where nobody was at the desk) is also the day it silently does not run. It wakes,
+    # judges in about three seconds, and pmv-sleep's retry window suspends again.
+    $bandCheckSettings.WakeToRun = $true
+    # Deliberately OFF, same reasoning as the collectors: a catch-up run hours later would
+    # judge the band of a day the machine spent asleep and report a loss that is an
+    # artefact of the catch-up, not of collection.
+    $bandCheckSettings.StartWhenAvailable = $false
+
+    Register-ScheduledTask -TaskName $BandCheckTaskName `
+        -Action $bandCheckAction `
+        -Trigger (New-ScheduledTaskTrigger -Daily -At $BandCheckAt) `
+        -Settings $bandCheckSettings `
+        -Description 'Prediction market validation: did the band capture anything today' `
+        -Force | Out-Null
+    Write-Host ("registered $BandCheckTaskName  (daily at $BandCheckAt; exit 1 = BAND LOST, " +
+                "toast + LastTaskResult)")
+
     Write-Host ""
     Write-Host "Band: $BandStart-$BandEnd local, daily. Wakes the machine from sleep."
     Write-Host "Logs: $LogDir\<job>-<date>.log"
@@ -376,6 +439,10 @@ function Uninstall-Tasks {
     if (Get-ScheduledTask -TaskName $SleepTaskName -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $SleepTaskName -Confirm:$false
         Write-Host "removed $SleepTaskName"
+    }
+    if (Get-ScheduledTask -TaskName $BandCheckTaskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $BandCheckTaskName -Confirm:$false
+        Write-Host "removed $BandCheckTaskName"
     }
 }
 
@@ -403,6 +470,37 @@ function Show-Status {
         $log = Join-Path $LogDir ("{0}-{1:yyyyMMdd}.log" -f $jobName, (Get-Date))
         if (Test-Path $log) {
             Get-Content $log -Tail 3 | ForEach-Object { Write-Host "    $_" }
+        }
+        else {
+            Write-Host "    (no log today at $log)"
+        }
+    }
+
+    # The verdict tasks, reported separately because 0/1 means something different here.
+    # For a collector, 1 is a crash. For these, 1 IS the answer -- so the FAILING label
+    # above would be wrong on the days they are doing their job, and that mislabelling is
+    # how a warning stops being read.
+    foreach ($spec in $ScriptTasks) {
+        $task = Get-ScheduledTask -TaskName $spec.Name -ErrorAction SilentlyContinue
+        if ($null -eq $task) { Write-Host "$($spec.Name) : NOT REGISTERED"; continue }
+
+        $info = Get-ScheduledTaskInfo -TaskName $spec.Name
+        $rc = $info.LastTaskResult
+        $verdict = switch ($rc) {
+            0       { 'OK' }
+            1       { '<-- ALARM' }
+            267009  { 'running' }
+            267011  { 'not yet run' }
+            2       { '<-- MISCONFIGURED' }
+            default { "<-- ERROR $rc" }
+        }
+        Write-Host ("$($spec.Name) : $($task.State)  last=$($info.LastRunTime)  " +
+                    "result=$rc  next=$($info.NextRunTime)  $verdict")
+        Write-Host "    ($($spec.Note))"
+
+        $log = Join-Path $LogDir ("{0}-{1:yyyyMMdd}.log" -f $spec.Log, (Get-Date))
+        if (Test-Path $log) {
+            Get-Content $log -Tail 2 | ForEach-Object { Write-Host "    $_" }
         }
         else {
             Write-Host "    (no log today at $log)"

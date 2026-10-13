@@ -1,6 +1,15 @@
 name: feeds
 
-# The jobs whose lateness does not matter, plus a watchdog for the one whose does.
+# The jobs whose lateness does not matter.
+#
+# The watchdog that used to live here moved to the desktop on 2026-10-12 --
+# scripts/band_check.ps1, task pmv-band-check. It was wrong twice over: it judged
+# `gh run list --workflow band.yml`, so a healthy desktop band with a dead Actions cron
+# read as "no band today", and it rode the hourly cron below on the stated grounds that it
+# was "the only trigger known to fire". Hours later that cron had missed six consecutive
+# slots while a manual dispatch of this same file succeeded in 20s. A watchdog is worth
+# only as much as its trigger, and Task Scheduler is the trigger that demonstrably fires
+# on the machine that actually collects.
 #
 # Split from collect.yml on 2026-10-12. The band moved to band.yml because the hourly cron
 # below appears to have starved the specific-time schedules sharing its file: over the
@@ -23,7 +32,7 @@ on:
       job:
         description: 'which job to run by hand'
         type: choice
-        options: [preflight, gefs, resolutions, watchdog]
+        options: [preflight, gefs, resolutions]
         default: preflight
 
 permissions:
@@ -98,41 +107,3 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run python -m scripts.watch_resolutions --catalogue
-
-  # A missing band is currently silent, which is the worst property of the whole
-  # arrangement: 2026-10-12 produced no band run at all and nothing said so -- it was found
-  # by a person looking. This rides the only trigger known to fire, so it inherits that
-  # trigger's reliability instead of needing its own, and it **fails on purpose** when the
-  # band is missing, because a failed scheduled workflow is the one thing GitHub emails
-  # about unprompted.
-  #
-  # It only judges after 10:00 UTC, by which time shift B should have finished, so a
-  # morning before the band is not an alarm.
-  watchdog:
-    if: >-
-      github.event.schedule == '5 * * * *' ||
-      (github.event_name == 'workflow_dispatch' && inputs.job == 'watchdog')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: a band must have succeeded today
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          hour=$(date -u +%H)
-          today=$(date -u +%Y-%m-%d)
-          if [ "${hour#0}" -lt 10 ]; then
-            echo "it is ${hour}:xx UTC; shift B is not due to have finished. Not judging."
-            exit 0
-          fi
-
-          runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow band.yml \
-                   --status success --limit 20 --json createdAt \
-                   --jq "[.[] | select(.createdAt | startswith(\"$today\"))] | length")
-          echo "successful band runs on ${today}: ${runs}"
-          if [ "$runs" -eq 0 ]; then
-            echo "::error::No band run succeeded on ${today}. The desktop collector may" \
-                 "have covered the window, but Actions did not."
-            exit 1
-          fi
