@@ -1258,3 +1258,86 @@ able to mail. That is a worse failure mode in theory and a better one in practic
 desktop is the host that actually collects — but if Actions is ever fixed, a second watchdog
 there judging the *desktop's* committed Parquet would close the gap, and that is the right
 shape for it rather than the one retired here.
+
+### Amendment 16 — 2026-10-13, the schedule-splitting diagnosis was wrong, and the band leaves GitHub's scheduler
+
+No research parameter changes. The hypothesis, the window
+[2026-10-16T00:00:00Z, 2026-11-15T00:00:00Z), σ_d = 0.2092, δ = 0.0509, the required
+effective n of 133, min n = 400 nominal, the frozen `gefs_station_bias_v1` pair and G0's
+declared 03:30–09:10 UTC band are all exactly as Amendments 13–15 left them. This records an
+operational change and a retracted diagnosis.
+
+**Amendment 14's diagnosis is falsified, by the control it had the sense to leave behind.**
+The claim was that an hourly cron starves specific-time crons sharing its workflow file — all
+four schedules sat in `collect.yml`, and over 12 hours only `5 * * * *` ever fired. The band
+moved to `band.yml`, and `30 10 * * *` (resolutions) deliberately stayed in `feeds.yml`
+beside the hourly entry, as the control: *"if it fires tomorrow while the band also fires, the
+file-splitting story is wrong and something else is going on."* On 2026-10-13 everything
+fired, and everything fired hours late:
+
+| cron | purpose | file | fired | late by |
+|---|---|---|---|---|
+| `20 3 * * *` | band shift A | `band.yml` | 10:46Z | 7h26m |
+| `10 6 * * *` | band shift B | `band.yml` | 14:03Z | 7h53m |
+| `30 10 * * *` | resolutions | `feeds.yml` | 17:41Z | 7h11m |
+| `5 * * * *` | GEFS hourly | `feeds.yml` | 3 of 24 slots | — |
+
+So it was never the file, and the split bought nothing. **It is worth stating that the
+remedy's own control is what refuted it** — the alternative was believing a fixed mechanism
+for weeks on the evidence that the band now fires, which it does.
+
+**The band collected zero rows on both shifts anyway, and reported success.** `--until` is an
+absolute instant, by deliberate design (Amendment 13: a tick count drifts under suspend). A
+shift that starts after its own deadline therefore has an empty window: the snapshotter
+exited on its first tick, the commit step found nothing to add, and both runs went green in
+about four minutes having written nothing. The run log says `collecting until
+2026-10-13T06:50:00+00:00` at 10:46Z and nothing anywhere says that is impossible. **Fifth
+occurrence of this project's recurring fault** — a check reporting success on an easier
+question than the one asked, after the band mismatch, the empty sweep, the `--days 1`
+default, the empty-range pass, and Amendment 15's watchdog.
+
+Fixed where it is visible: `band.yml` now refuses a dispatch whose deadline has already
+passed, with `::error::` and a non-zero exit, before the snapshotter starts. Verified in both
+directions against the live shell logic — today's 06:50Z refuses, a future deadline proceeds.
+
+**The band leaves GitHub's scheduler entirely.** `band.yml`'s `schedule` triggers are removed;
+it is `workflow_dispatch`-only, driven by `pinger/` — a Cloudflare Worker with three cron
+triggers that POSTs `workflow_dispatch` over the REST API. API triggers are not on the
+scheduler that failed: every hand dispatch in this project has started within seconds,
+including the 12m29s band on 2026-10-11 that polled 161 markets and pushed first try.
+
+Three decisions in it worth recording:
+
+1. **Not hosted on the desktop.** Task Scheduler is the one timer here that has never failed
+   to fire, and it drives every local collector. But Actions exists to cover the days the
+   desktop is asleep — which are precisely the days a desktop-hosted pinger is also asleep. A
+   redundant collector triggered by the host it is redundant *for* is not redundant.
+2. **The pinger judges nothing.** It dispatches and reports the HTTP status. Whether a run
+   collected anything is answered by `band.yml`'s deadline guard and by `band_check.ps1`
+   against the committed Parquet. Amendment 15 retired a watchdog for watching the wrong host
+   from the wrong trigger; a watchdog inside the trigger it is meant to be independent of
+   would repeat that, one amendment later.
+3. **GEFS is pinged hourly too**, which is a widening of scope and is deliberate. A band
+   running on a day the desktop is asleep would otherwise emit against whatever GitHub's
+   3-of-24 cron last fetched, and the ensemble cannot be backfilled — point-in-time integrity
+   rests entirely on the row having been written live. `feeds.yml` keeps its own crons:
+   resolutions are backfillable, GEFS duplicates are harmless append-only rows, and the two
+   are now the only remaining evidence of whether GitHub's scheduler ever recovers.
+
+`pinger/check.mjs` is a pre-deploy self-check, and it was verified to fail on three real drift
+cases (an unmapped cron, a shift transposed onto the other's deadline, a deadline earlier than
+the cron that fires it) rather than merely to pass.
+
+**What is still open, stated plainly.**
+
+- **The pinger is committed but not deployed.** `wrangler deploy` needs a Cloudflare account
+  and a fine-grained GitHub token, which is Abel's step. **Until it runs, Actions collects
+  nothing at all** — the desktop is the sole collector. This is not a regression: the
+  scheduled runs it replaces also collected nothing, just silently. The window opens
+  2026-10-16.
+- **The DST obligation is untouched** and still falls due 2026-10-25, when Madrid's exit moves
+  the desktop band from 03:30Z to 04:30Z, an hour after the declared band start. If neither a
+  widened desktop band nor a working Actions band is in place by then, the days after it carry
+  a one-hour band mismatch that must be disclosed with the result.
+- **The desktop's sleep failures are unmitigated.** 2026-10-10 and 2026-10-11 were both total
+  losses, pre-window and therefore free; the same failure inside the window is not.

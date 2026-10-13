@@ -24,3 +24,8 @@ data/cache/
 # Scoring output. Regenerable from the database, and a committed report is a
 # claim about a sample size that has since moved.
 reports/
+
+# Wrangler's local state and dependencies. The pinger itself is four tracked files and has
+# no dependencies of its own -- wrangler is installed globally or run via npx.
+pinger/.wrangler/
+pinger/node_modules/

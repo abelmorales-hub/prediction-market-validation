@@ -1,0 +1,28 @@
+name = "pmv-pinger"
+main = "src/index.js"
+compatibility_date = "2026-10-13"
+
+# UTC, like everything else in the collection path. Cloudflare's crons are the whole point
+# of hosting here: they are not GitHub's scheduler, and they are not the desktop's clock.
+#
+# A trigger added here needs a matching entry in DISPATCH in src/index.js or the
+# invocation throws -- deliberately, so a half-made change is visible in `wrangler tail`
+# rather than being a cron that quietly does nothing.
+[triggers]
+crons = [
+  "20 3 * * *",   # band shift A, runs to 06:50Z
+  "10 6 * * *",   # band shift B, runs to 09:10Z
+  "0 * * * *",    # GEFS, hourly
+]
+
+# Not secret. The token is a secret and is set with `wrangler secret put GH_TOKEN`, never
+# written here -- see README.md.
+[vars]
+REPO = "abelmorales-hub/prediction-market-validation"
+REF = "master"
+
+# Keeps the console.log lines queryable in the dashboard, which is the only record of a
+# dispatch that the GitHub side cannot show: a 401 produces no workflow run at all, so
+# without this a dead token looks identical to a cron that never fired.
+[observability]
+enabled = true

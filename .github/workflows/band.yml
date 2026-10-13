@@ -1,8 +1,11 @@
 name: band
 
-# Split out of collect.yml on 2026-10-12, after the band crons did not fire once.
+# Split out of collect.yml on 2026-10-12, after the band crons did not fire once. The
+# schedules were then removed on 2026-10-13: this workflow is dispatch-only, driven by an
+# external pinger (pinger/, Amendment 16). The history is worth keeping because it took two
+# wrong diagnoses to get here.
 #
-# What was observed over the first 12 hours, with all four schedules in one file:
+# First 12 hours, all four schedules in one file:
 #
 #   cron            purpose            fired
 #   5 * * * *       GEFS hourly        3 times in 12 h, at :48, :18 and :38
@@ -10,28 +13,33 @@ name: band
 #   10 6 * * *      band shift B       never
 #   30 10 * * *     resolutions        never
 #
-# That is not the flat "schedules run late" picture the margins below were sized for. The
-# only entry that fired was the hourly one, at minutes unrelated to its own, while every
-# specific-time entry was ignored. The hypothesis is that an hourly cron in the same file
-# dominates its neighbours, so this file now holds the band schedules and nothing else.
-# The cron times are deliberately unchanged -- one variable moves, so tomorrow is a test
-# rather than a reshuffle, and the G0 band declared in Amendment 13 stays accurate.
+# The hypothesis was that the hourly entry starves the specific-time ones sharing its file,
+# so the band moved here and `30 10 * * *` stayed behind as a control. **The control
+# falsified it.** On 2026-10-13 everything fired, and everything fired hours late:
+#
+#   20 3 * * *    band shift A     fired 10:46Z   7h26m late
+#   10 6 * * *    band shift B     fired 14:03Z   7h53m late
+#   30 10 * * *   resolutions      fired 17:41Z   7h11m late   <- the control, same file
+#   5 * * * *     GEFS hourly      fired 3 of 24 slots
+#
+# So it was never the file, and splitting it bought nothing. GitHub's scheduler delivers
+# this repository's crons hours late or not at all, and no workflow-level setting changes
+# that. What it does change: `--until` is an absolute instant (deliberately -- a tick count
+# drifts under suspend), so a shift that starts after its own deadline writes nothing at
+# all. Both shifts exited in ~4 minutes that day, green, having collected zero rows.
 #
 # Everything is UTC. The US ladders' T-24h instants fall in 04:00-09:00 UTC across the
 # study, moving an hour when US DST ends on 2026-11-01; the range covers both sides.
 #
-#   shift A   fires 03:20Z, runs to 06:50Z   -> 40 min of margin ahead of 04:00
-#   shift B   fires 06:10Z, runs to 09:10Z   -> 40 min of overlap with A
+#   shift A   dispatched 03:20Z, runs to 06:50Z   -> 40 min of margin ahead of 04:00
+#   shift B   dispatched 06:10Z, runs to 09:10Z   -> 40 min of overlap with A
 #
-# The margins absorb *lateness*: the collector is a window, not an alarm, sweeping on a
-# ~60 s cadence, so a late start eats slack in front of the window, and `--until` is an
-# absolute instant so the end never moves. They do not absorb *omission*, which is what
-# actually happened, and no workflow-level setting can.
+# The margins absorb a pinger that fires a few minutes late. They do not absorb hours, and
+# the guard in `pick this shift's deadline` is what makes that failure loud instead of
+# green. Resolutions and GEFS keep their crons in feeds.yml: both are late-tolerant, and
+# they are now the only remaining evidence of whether the scheduler ever recovers.
 
 on:
-  schedule:
-    - cron: '20 3 * * *'    # shift A
-    - cron: '10 6 * * *'    # shift B
   workflow_dispatch:
     inputs:
       until:
@@ -61,10 +69,11 @@ jobs:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     # Generous against the 3h30m shift: the deadline ends the run, not this.
     timeout-minutes: 230
-    # Keyed per schedule, not per workflow: a second copy of the *same* shift is a
-    # duplicate, but A and B are supposed to overlap.
+    # Keyed per shift, not per workflow: a second copy of the *same* shift is a duplicate
+    # -- a pinger that retries, or a hand dispatch on top of one -- but A and B are
+    # supposed to overlap, and `until` is what distinguishes them.
     concurrency:
-      group: band-${{ github.event.schedule || inputs.until }}
+      group: band-${{ inputs.until }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -81,12 +90,23 @@ jobs:
       - name: pick this shift's deadline
         id: window
         run: |
-          case "${{ github.event.schedule }}" in
-            '20 3 * * *') end='06:50' ;;
-            '10 6 * * *') end='09:10' ;;
-            *)            end='${{ inputs.until }}' ;;
-          esac
-          echo "deadline=$(date -u +%Y-%m-%d)T${end}:00+00:00" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          deadline="$(date -u +%Y-%m-%d)T${{ inputs.until }}:00+00:00"
+
+          # A deadline already in the past is not a late run, it is no run. `--until` is an
+          # absolute instant, so the snapshotter exits on its first tick, the commit step
+          # finds nothing to add, and the job reports success having written zero rows.
+          # That is exactly what both shifts did on 2026-10-13, 7h26m and 7h53m after
+          # their cron times, and nothing in the run said so -- the fifth time a check
+          # here has reported green on an easier question than the one asked. Refuse
+          # instead: the pinger firing hours late is a fault in the pinger, and this is
+          # the only place that can see it.
+          if [ "$(date -u +%s)" -ge "$(date -u -d "$deadline" +%s)" ]; then
+            echo "::error::deadline ${deadline} has already passed, so this run cannot collect anything. The dispatch was late; see pinger/."
+            exit 1
+          fi
+
+          echo "deadline=${deadline}" >> "$GITHUB_OUTPUT"
 
       - name: snapshot the books, emitting predictions alongside
         run: |
@@ -124,7 +144,7 @@ jobs:
             echo 'no new snapshots to commit'
             exit 0
           fi
-          git commit -q -m "data: snapshots $(date -u +%Y-%m-%d) (${{ github.event.schedule || 'manual' }})"
+          git commit -q -m "data: snapshots $(date -u +%Y-%m-%d) (actions, shift to ${{ inputs.until }})"
           # The other shift may have pushed while this one collected. Part filenames carry
           # a content token precisely so this rebase can never collide on a path.
           for attempt in 1 2 3 4 5; do
