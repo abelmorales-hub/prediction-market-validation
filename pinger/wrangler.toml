@@ -2,6 +2,12 @@ name = "pmv-pinger"
 main = "src/index.js"
 compatibility_date = "2026-10-13"
 
+# No public URL. This Worker has only a `scheduled` handler -- there is no `fetch`, so a
+# workers.dev route would serve nothing, and an endpoint able to dispatch collection runs
+# has no business being reachable by anyone. Without this, `wrangler deploy` insists on
+# registering a workers.dev subdomain first and fails if the name is taken.
+workers_dev = false
+
 # UTC, like everything else in the collection path. Cloudflare's crons are the whole point
 # of hosting here: they are not GitHub's scheduler, and they are not the desktop's clock.
 #

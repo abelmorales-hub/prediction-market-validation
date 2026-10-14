@@ -18,9 +18,31 @@ GitHub token. From this directory:
 ```sh
 npm install -g wrangler        # or prefix each command below with: npx
 wrangler login
+wrangler deploy                # registers the script and its cron triggers
 wrangler secret put GH_TOKEN   # paste the token, see below
-wrangler deploy
 ```
+
+`deploy` before `secret put`, because `secret put` on a Worker that does not exist yet
+stops to ask whether to create one. Secrets apply immediately and need no redeploy, so the
+only cost of this order is that a cron firing in the gap throws a 401 — visible in
+`wrangler tail`, harmless, and it writes nothing.
+
+Three things the first deploy from this machine tripped over, all one-time:
+
+- **`A permission error occurred while accessing the file system: D:\node_modules\.cache\wrangler`.**
+  Wrangler walks up looking for a `node_modules` to cache in and reached the drive root.
+  Fixed by `mkdir -p node_modules/.cache` here; it is gitignored.
+- **`could not automatically register "pinger" as your workers.dev subdomain`.** Fixed by
+  `workers_dev = false` in `wrangler.toml`, which is correct regardless: this Worker has
+  only a `scheduled` handler, so a public route would serve nothing.
+- **`You need a workers.dev subdomain in order to proceed [code: 10063]`**, when
+  registering the cron schedules. This one is an *account* gate, not a per-Worker one, and
+  `workers_dev = false` does not get past it: the account needs a workers.dev subdomain to
+  exist at all. Open the Workers section of the Cloudflare dashboard once — that creates
+  one — then re-run `wrangler deploy`. **The script uploads successfully before this error,
+  with no triggers attached, so "a Worker that exists and never runs" is the expected
+  intermediate state**, and `Total Upload: 1.74 KiB` in the output is not evidence the
+  pinger is live. Check the triggers, not the upload.
 
 ### The token
 
