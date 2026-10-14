@@ -69,8 +69,25 @@ $BandCheckScript = Join-Path $PSScriptRoot 'band_check.ps1'
 # to the hour, so a 5.5h band became a 6h repetition window running to 11:30 while
 # everything else assumed 11:00. Matching the two removes the discrepancy rather than
 # compensating for it.
-$BandStart      = '05:30'
-$BandDurationH  = 6
+#
+# Widened from 05:30/6h to 04:30/7h on 2026-10-14, ahead of Madrid leaving DST on
+# 2026-10-25, mid-window (Amendment 17). The band is declared in UTC -- 03:30-09:10 -- but
+# scheduled in local time, and those two agree only while Madrid is on CEST:
+#
+#   period                 band local     band UTC       T-24h instants   covered
+#   now -> 10-25 (CEST)    05:30-11:30    03:30-09:30Z   04:00-09:00Z     yes
+#   10-25 -> (CET), OLD    05:30-11:30    04:30-10:30Z   04:00-09:00Z     NO, 04:00-04:30
+#   10-25 -> (CET), NEW    04:30-11:30    03:30-10:30Z   04:00-09:00Z     yes
+#   11-01 -> (US DST off)  04:30-11:30    03:30-10:30Z   05:00-10:00Z     yes
+#
+# So the start moves an hour earlier and the duration absorbs it; $BandEnd is unchanged at
+# 11:30, which is why pmv-sleep and pmv-band-check keep their times. The cost until 10-25
+# is one extra hour of collection a day (02:30-03:30Z) and a machine that wakes an hour
+# earlier -- rows outside the declared band, which cost nothing and are dropped by the
+# window filter anyway. Shifting instead of widening was the alternative and is wrong: it
+# would move the *end* an hour earlier too and lose the 09:00Z instants instead.
+$BandStart      = '04:30'
+$BandDurationH  = 7
 $BandEnd        = ([datetime]$BandStart).AddHours($BandDurationH).ToString('HH:mm')
 
 # Sleep is attempted from the band's end and retried, rather than fired once ten minutes

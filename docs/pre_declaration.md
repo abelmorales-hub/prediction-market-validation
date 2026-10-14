@@ -1350,3 +1350,67 @@ already getting, so this freezes the observed host rather than choosing a new on
 that changes Python, glibc or the TLS stack underneath a running study is the same class of
 uncontrolled variable as a model edited after freezing, and the venue here has already shown
 it is sensitive to connection-level behaviour.
+
+### Amendment 17 — 2026-10-14, the collection band widens an hour ahead of Madrid's DST change
+
+**No declared research parameter changes.** The hypothesis, the window
+[2026-10-16T00:00:00Z, 2026-11-15T00:00:00Z), σ_d = 0.2092, δ = 0.0509, the required
+effective n of 133, min n = 400 nominal, the frozen `gefs_station_bias_v1` pair, and **G0's
+declared band of 03:30–09:10 UTC** are all exactly as Amendments 13–16 left them. In
+particular the declared band is **not** touched: this amendment changes the local schedule
+that implements it, so that it keeps implementing it.
+
+**The obligation being discharged.** The band is declared in UTC and scheduled in local time,
+and those two agree only while Madrid is on CEST. Madrid leaves DST on **2026-10-25**, nine
+days into the window:
+
+| period | band (local) | band (UTC) | T-24h instants | covered |
+|---|---|---|---|---|
+| now → 10-25 (CEST) | 05:30–11:30 | 03:30–09:30Z | 04:00–09:00Z | yes |
+| 10-25 → (CET), **unchanged** | 05:30–11:30 | **04:30**–10:30Z | 04:00–09:00Z | **no — 04:00–04:30Z** |
+| 10-25 → (CET), **widened** | 04:30–11:30 | 03:30–10:30Z | 04:00–09:00Z | yes |
+| 11-01 → (US DST ends) | 04:30–11:30 | 03:30–10:30Z | 05:00–10:00Z | yes |
+
+Left alone, the band would have slid an hour later in UTC at the exact moment the earliest
+T-24h instants still sit at 04:00Z, losing the first half hour of the Eastern stations every
+day for the remaining three weeks. That is not a random thinning: Amendment 3 already records
+that shrinking the band *deletes whole timezones*, and for a weather study a climate-region
+bias is close to the worst available.
+
+**What changed: `$BandStart` 05:30 → 04:30 and `$BandDurationH` 6 → 7** in
+`scripts/supervisor.ps1`, with `scripts/band_check.ps1`'s pinned `-Band` moved with it.
+**Widened, not shifted** — shifting would have pulled the *end* an hour earlier too and
+dropped the 09:00Z instants instead of the 04:00Z ones, trading one timezone for another.
+`$BandEnd` is therefore unchanged at 11:30, which is why `pmv-sleep` (11:30) and
+`pmv-band-check` (11:33) keep their times, and why `--until` still reads `11:30`.
+
+`--until HH:MM` is parsed as *today's local wall-clock occurrence* (`snapshot.py`), which is
+the property that makes a local band keep bracketing wall-clock horizons across a DST seam at
+all; the Actions runners get a full ISO instant instead, for the opposite reason.
+
+**Cost, stated rather than hidden.** Until 10-25 this collects one extra hour a day,
+02:30–03:30Z, and wakes the machine an hour earlier. Those rows fall outside the declared
+band and outside the window filter, so they cost nothing analytically and are not part of any
+sample. The real cost is eleven days of a slightly longer band on a machine whose sleep
+behaviour has already caused four total losses.
+
+**Verified rather than assumed**: `$BandEnd` recomputes to 11:30 and `pmv-sleep`/
+`pmv-band-check` are unmoved; `ExecutionTimeLimit` is `PT7H30M` against a `PT7H` repetition,
+so `Install-Tasks`' assertion that the kill timer outlasts the band still holds (this is the
+`New-TimeSpan -Hours` `[int]` trap from 2026-09-16, which silently cost the snapshotter its
+grace period once already); all four collectors re-registered at 04:30 with `PT7H`; and
+`band_check.ps1` re-run against 2026-10-14 — a day collected under the *old* band — returns
+the identical verdict, 9,109 in-band snapshots, exit 0. The old band is a strict subset of
+the new one, so no historical day changes its liveness verdict.
+
+**Deliberately NOT changed, and it is a known mismatch.** `pmv-g0-check` is registered by
+hand, is absent from `supervisor.ps1`'s `$Tasks`, and so was untouched by `-Install`; it still
+runs `g0_check.ps1` with its own default `-Band '05:30-11:30'`. From 10-25 that judges
+04:30–10:30Z while the collector runs 03:30–10:30Z, i.e. **the gate will ignore the first
+hour of the band**. That is conservative — it can produce neither a false pass nor a false
+failure, only a narrower question — and it is left alone on purpose: G0 is already red and
+pinned to 2026-09-05, and moving a declared gate's band is exactly the kind of
+loosening-after-failure that Amendment 10 had to open by admitting. Expressing `g0_check`'s
+band in UTC as `03:30-09:10` would make it ask its declared question in both DST regimes and
+is the right eventual fix, but it changes historical verdicts and therefore needs its own
+decision, not a side effect of this one.

@@ -33,7 +33,12 @@ param(
     # Pinned to match the collector's own band. supervisor.ps1 derives its tasks from
     # $BandStart/$BandDurationH; if those move, this moves with them or the watchdog
     # starts judging a window the collector never ran in.
-    [string]$Band = '05:30-11:30',
+    #
+    # Moved 05:30 -> 04:30 on 2026-10-14 with the band itself (Amendment 17). Liveness is
+    # the one question here that must be asked in *local* time: the collector is scheduled
+    # by a local wall clock, so a watchdog pinned to UTC would cry BAND LOST on the DST
+    # seam for a band that ran exactly as configured.
+    [string]$Band = '04:30-11:30',
     [string]$Tz   = 'Europe/Madrid',
     # Best-effort desktop toast on a lost band. Off by default so the task's own
     # invocation decides, and so running this by hand never pops a notification.
