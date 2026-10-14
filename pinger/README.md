@@ -38,11 +38,26 @@ Three things the first deploy from this machine tripped over, all one-time:
 - **`You need a workers.dev subdomain in order to proceed [code: 10063]`**, when
   registering the cron schedules. This one is an *account* gate, not a per-Worker one, and
   `workers_dev = false` does not get past it: the account needs a workers.dev subdomain to
-  exist at all. Open the Workers section of the Cloudflare dashboard once — that creates
-  one — then re-run `wrangler deploy`. **The script uploads successfully before this error,
-  with no triggers attached, so "a Worker that exists and never runs" is the expected
-  intermediate state**, and `Total Upload: 1.74 KiB` in the output is not evidence the
-  pinger is live. Check the triggers, not the upload.
+  exist at all.
+
+  **The URL matters, and the error message's own advice is not enough to find it.** Opening
+  `dash.cloudflare.com/<account_id>/workers/onboarding` does *not* provision one — it was
+  opened twice here and the error persisted both times. What worked was the Workers & Pages
+  overview:
+
+  ```
+  https://dash.cloudflare.com/<account_id>/workers-and-pages
+  ```
+
+  Visiting that once provisioned the subdomain silently, after which
+  `wrangler triggers deploy` registered all three crons in 3.89s. Use
+  `wrangler triggers deploy` rather than a full redeploy for this retry — the script is
+  already uploaded and only the triggers are missing.
+
+  **The script uploads successfully before this error, with no triggers attached, so "a
+  Worker that exists and never runs" is the expected intermediate state**, and
+  `Total Upload: 1.74 KiB` in the output is not evidence the pinger is live. Check the
+  triggers, not the upload.
 
 ### The token
 
