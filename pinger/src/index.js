@@ -1,4 +1,4 @@
-﻿// The thing that actually triggers collection on GitHub Actions, because GitHub's own
+// The thing that actually triggers collection on GitHub Actions, because GitHub's own
 // scheduler does not.
 //
 // Evidence, 2026-10-13, after the band crons were split into their own file to test
@@ -52,11 +52,43 @@ export default {
     const job = DISPATCH[event.cron];
     if (!job) throw new Error(`no dispatch mapped for cron '${event.cron}'`);
 
+    // Read through trim(), because `wrangler secret put` stores whatever whitespace came
+    // with the paste, and a trailing newline or CR inside a header *value* makes the
+    // outbound request malformed when workerd serializes it. The upstream then rejects it
+    // at the HTTP layer -- which is exactly the 2026-10-19 symptom: `400 Bad Request` with
+    // an empty body and only `connection: close`, `content-length: 0` and `date`, none of
+    // the `x-github-request-id` / `server: github.com` / `x-ratelimit-*` that every real
+    // api.github.com response carries. A malformed-request rejection, not an API verdict.
+    // Harmless when the secret is clean, which is why it is a trim and not an investigation.
+    const token = (env.GH_TOKEN ?? '').trim();
+
+    // Validate the secret's SHAPE before it goes anywhere near a header. A GitHub PAT is
+    // [A-Za-z0-9_] throughout; any other character can make the header value -- and so the
+    // whole outbound request -- malformed when workerd serializes it, and the upstream then
+    // answers with a bodyless `400 Bad Request` carrying no `x-github-request-id`. That is
+    // not an auth failure and not an API verdict, but it is indistinguishable from one if
+    // you only read the status code.
+    //
+    // This guard is here because the secret really did hold a SINGLE stray character from
+    // the 2026-10-14 deploy until 2026-10-19 -- `wrangler secret put` stored whatever one
+    // keystroke reached its stdin -- and the Worker never dispatched once in those five
+    // days. The 400 was blamed first on a dead token, then on a missing Content-Type; both
+    // were wrong, and both looked right because nobody had checked that the secret was a
+    // token at all. A malformed credential must fail by saying so.
+    if (!/^[A-Za-z0-9_]+$/.test(token)) {
+      throw new Error(
+        `GH_TOKEN is not a PAT: length ${token.length}, ` +
+          `${(env.GH_TOKEN ?? '').length - token.length} char(s) trimmed. Re-run ` +
+          '`wrangler secret put GH_TOKEN` and verify the token FIRST with: ' +
+          'curl -H "Authorization: Bearer <T>" https://api.github.com/user',
+      );
+    }
+
     const url = `https://api.github.com/repos/${env.REPO}/actions/workflows/${job.workflow}/dispatches`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${env.GH_TOKEN}`,
+        Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
         // Required, and its absence is why this Worker had never once dispatched. Workers'
@@ -86,7 +118,12 @@ export default {
       throw new Error(
         `dispatch ${job.workflow} (${JSON.stringify(job.inputs)}) -> ` +
           `${res.status} ${res.statusText}: ${(await res.text()).slice(0, 300)} ` +
-          `| headers ${JSON.stringify(Object.fromEntries(res.headers))}`,
+          `| headers ${JSON.stringify(Object.fromEntries(res.headers))} ` +
+          // Shape of the secret, never the secret. If `trimmed` is 0 and `ascii` is true the
+          // stored token cannot be malforming the request and the whitespace hypothesis is
+          // dead -- look at egress next, not at the token.
+          `| token len ${token.length} trimmed ${(env.GH_TOKEN ?? '').length - token.length} ` +
+          `ascii ${/^[A-Za-z0-9_]+$/.test(token)}`,
       );
     }
     console.log(`dispatched ${job.workflow} ${JSON.stringify(job.inputs)} on ${event.cron}`);

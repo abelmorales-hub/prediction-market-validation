@@ -49,4 +49,16 @@ assert.match(
   "the dispatch must send Content-Type: application/json, or GitHub rejects the body with 400",
 );
 
+// The fault that cost 2026-10-14 through -19 in full: the GH_TOKEN secret held a single
+// stray character, so every outbound request was malformed and the upstream returned a
+// bodyless 400 that never came from GitHub's API at all. Asserted here for the same reason
+// as the header above -- the bug was a check that did not exist, and its absence is
+// invisible. A credential has to be rejected for its shape before it is used, or a bad
+// paste is indistinguishable from a bad scope.
+assert.match(
+  worker,
+  /\/\^\[A-Za-z0-9_\]\+\$\/\.test\(token\)/,
+  'the dispatch must reject a GH_TOKEN that is not [A-Za-z0-9_] before sending it',
+);
+
 console.log(`ok: ${crons.length} crons, all mapped, both band shifts fire before their deadlines`);
