@@ -39,4 +39,14 @@ for (const [cron, until] of [
   assert.ok(ends > fires, `${cron} fires at ${h}:${m}Z, after its own deadline ${until}Z`);
 }
 
+// The fault that cost 2026-10-14 through -17: without this header Workers' fetch sends the
+// body as text/plain, GitHub answers 400, and the Worker had never dispatched once. It is
+// asserted here and not left to review because it is invisible in the code -- the bug is a
+// line that is absent, and the symptom is identical to the dead token that masked it.
+assert.match(
+  worker,
+  /'Content-Type':\s*'application\/json'/,
+  "the dispatch must send Content-Type: application/json, or GitHub rejects the body with 400",
+);
+
 console.log(`ok: ${crons.length} crons, all mapped, both band shifts fire before their deadlines`);

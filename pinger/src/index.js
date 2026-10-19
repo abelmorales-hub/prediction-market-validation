@@ -1,4 +1,4 @@
-// The thing that actually triggers collection on GitHub Actions, because GitHub's own
+﻿// The thing that actually triggers collection on GitHub Actions, because GitHub's own
 // scheduler does not.
 //
 // Evidence, 2026-10-13, after the band crons were split into their own file to test
@@ -59,6 +59,13 @@ export default {
         Authorization: `Bearer ${env.GH_TOKEN}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
+        // Required, and its absence is why this Worker had never once dispatched. Workers'
+        // fetch stamps a string body `text/plain;charset=UTF-8`, which GitHub refuses to
+        // parse: every invocation from the 2026-10-14 deploy onward returned 400. The dead
+        // GH_TOKEN hid it until 2026-10-15 -- a 401 is decided before the body is read, so
+        // fixing the token did not introduce this fault, it exposed it. Hand dispatches
+        // always worked because `gh` sets this header itself.
+        'Content-Type': 'application/json',
         // api.github.com rejects a request without one.
         'User-Agent': 'pmv-pinger',
       },
@@ -70,9 +77,16 @@ export default {
     // silence this whole arrangement exists to remove. Throwing marks the cron invocation
     // failed in `wrangler tail` and in the Workers dashboard.
     if (res.status !== 204) {
+      // statusText and the response headers are logged because the 400 this has returned
+      // since the 2026-10-14 deploy has an EMPTY body, while GitHub's API-layer 400s carry a
+      // JSON one -- so the Content-Type diagnosis never matched the symptom, and GitHub may
+      // not be what is answering. `x-github-request-id` is the discriminator: present means
+      // the request reached GitHub and was rejected there, absent means something in front of
+      // it replied. No request header is logged -- one of them is the PAT.
       throw new Error(
-        `dispatch ${job.workflow} (${JSON.stringify(job.inputs)}) -> ${res.status}: ` +
-          `${(await res.text()).slice(0, 300)}`,
+        `dispatch ${job.workflow} (${JSON.stringify(job.inputs)}) -> ` +
+          `${res.status} ${res.statusText}: ${(await res.text()).slice(0, 300)} ` +
+          `| headers ${JSON.stringify(Object.fromEntries(res.headers))}`,
       );
     }
     console.log(`dispatched ${job.workflow} ${JSON.stringify(job.inputs)} on ${event.cron}`);
