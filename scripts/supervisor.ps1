@@ -106,6 +106,20 @@ $SleepAt        = $BandEnd
 $SleepRetryMin  = 5
 $SleepRetryH    = 1
 
+# A second, overnight window, added 2026-10-21 for energy and not for collection. The
+# band-end window above is bounded to an hour on purpose, and that bound is what sends the
+# machine into the night still awake on any day the user is at it around $BandEnd -- which
+# is how 2026-10-19 ended in a hand shutdown, and a shutdown is the one state no wake timer
+# can recover from (2026-10-20 was lost entirely that way). So the hour here is deliberately
+# NOT tuned: retrying every 15 min from 21:00 until 04:00 means that whichever hour the user
+# actually stops, the machine suspends within a quarter of an hour of going idle, and no
+# attempt is ever the last one. It cannot fire into the band -- the window closes 30 min
+# before the 04:30 start -- and Invoke-SleepIfIdle still refuses while a collector lives or
+# the machine is in use, so this only adds occasions to ask, never a new way to say yes.
+$NightSleepAt       = '21:00'
+$NightSleepRetryMin = 15
+$NightSleepRetryH   = 7
+
 # The band watchdog. Derived from $BandEnd rather than written as a literal, because it
 # has to run after the band *closes* -- band_days judges only whole closed bands, so an
 # earlier run reports "no closed band yet" and exits 0, which is a watchdog that passes
@@ -392,14 +406,32 @@ function Install-Tasks {
         -RepetitionInterval (New-TimeSpan -Minutes $SleepRetryMin) `
         -RepetitionDuration (New-TimeSpan -Hours $SleepRetryH)).Repetition
 
+    # Two triggers on one task, not two tasks: the action and all three guards are
+    # identical, and IgnoreNew already discards a tick landing on a live attempt from
+    # either window.
+    $nightTrigger = New-ScheduledTaskTrigger -Daily -At $NightSleepAt
+    $nightTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At $NightSleepAt `
+        -RepetitionInterval (New-TimeSpan -Minutes $NightSleepRetryMin) `
+        -RepetitionDuration (New-TimeSpan -Hours $NightSleepRetryH)).Repetition
+
+    # The overnight window must never reach into the band. Asserted rather than trusted,
+    # because both ends are edited by hand and a 15-min tick landing at 04:35 would
+    # suspend the machine on top of a snapshotter that had just started.
+    $nightEnd = ([datetime]$NightSleepAt).AddHours($NightSleepRetryH)
+    if ($nightEnd.TimeOfDay -gt ([datetime]$BandStart).TimeOfDay) {
+        throw ("night sleep window runs to $($nightEnd.ToString('HH:mm')), past the band " +
+               "start $BandStart -- it would suspend a live collector")
+    }
+
     Register-ScheduledTask -TaskName $SleepTaskName `
         -Action $sleepAction `
-        -Trigger $sleepTrigger `
+        -Trigger @($sleepTrigger, $nightTrigger) `
         -Settings $sleepSettings `
-        -Description 'Prediction market validation: sleep after the band, unless in use' `
+        -Description 'Prediction market validation: sleep after the band and overnight, unless in use' `
         -Force | Out-Null
-    Write-Host ("registered $SleepTaskName  (from $SleepAt, retried every $SleepRetryMin min " +
-                "for ${SleepRetryH}h; skips while collecting or in use)")
+    Write-Host ("registered $SleepTaskName  (from $SleepAt every $SleepRetryMin min for " +
+                "${SleepRetryH}h, and from $NightSleepAt every $NightSleepRetryMin min for " +
+                "${NightSleepRetryH}h; skips while collecting or in use)")
 
     # The watchdog. One shot a day, no repetition: the question is about a closed band, so
     # asking it twice cannot change the answer, and a repeating alarm is one people learn
