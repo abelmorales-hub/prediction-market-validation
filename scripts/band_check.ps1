@@ -34,12 +34,51 @@ param(
     # $BandStart/$BandDurationH; if those move, this moves with them or the watchdog
     # starts judging a window the collector never ran in.
     #
-    # Moved 05:30 -> 04:30 on 2026-10-14 with the band itself (Amendment 17). Liveness is
-    # the one question here that must be asked in *local* time: the collector is scheduled
-    # by a local wall clock, so a watchdog pinned to UTC would cry BAND LOST on the DST
-    # seam for a band that ran exactly as configured.
-    [string]$Band = '04:30-11:30',
-    [string]$Tz   = 'Europe/Madrid',
+    # Moved 05:30 -> 04:30 on 2026-10-14 with the band itself (Amendment 17), then to UTC
+    # on 2026-10-30. The local-time version carried this reasoning: "liveness is the one
+    # question here that must be asked in *local* time: the collector is scheduled by a
+    # local wall clock, so a watchdog pinned to UTC would cry BAND LOST on the DST seam for
+    # a band that ran exactly as configured." The premise was false, and it is worth being
+    # precise about why, because the same assumption sits in supervisor.ps1's own comments.
+    #
+    # `New-ScheduledTaskTrigger -Daily -At '04:30'` does not store "04:30, local, daily".
+    # It serialises to a StartBoundary carrying an explicit offset -- pmv-snapshot's reads
+    # `2026-10-21T03:30:00+01:00`, written with the machine's *standard* offset even though
+    # 10-21 was CEST -- and Task Scheduler honours that offset as an absolute instant
+    # rather than re-reading the wall clock each morning. So the collectors are pinned to
+    # 02:30Z and have never moved. What moved was this watchdog's question.
+    #
+    # From 2026-10-25, when Madrid left DST, the task kept firing at 09:33Z (10:33 local,
+    # down from 11:33) while still asking about 04:30-11:30 *local* -- a window that now
+    # closes at 10:30Z, an hour after the check runs. So it printed "no closed band in
+    # range yet; not judging" and exited 0 every day from 10-25 on, including 2026-10-29,
+    # a total local loss (the 02:30Z wake timer did not fire, then the unarmed-repetition
+    # trap finished it) that the toast never reported. Seventh time a gate here has
+    # answered an easier question than the one declared, and the first where DST, not a
+    # code change, did the swapping.
+    #
+    # Stating the band in UTC pins it to the same clock the trigger actually uses, so the
+    # seam cannot separate the two again.
+    #
+    # THESE DEFAULTS ARE THE FALLBACK FOR A HAND RUN, NOT THE PRODUCTION CONFIGURATION.
+    # Since 2026-10-30 `supervisor.ps1 -Install` registers the task with `-Band` and `-Tz`
+    # passed explicitly, so the window the watchdog asks about is written by the same code
+    # that writes the trigger it fires from, and Install-Tasks throws if the check does not
+    # land after the close. They are kept equal to supervisor.ps1's $BandStartUtc and
+    # $BandEndUtc anyway: a hand run that silently judged a different window than the task
+    # does would be its own trap.
+    #
+    # The band was 02:30-09:30Z for nine days and is 03:30-10:30Z from the next -Install.
+    # That is not a correction of Amendment 17 but a delivery of it: the UTC band was
+    # always meant to walk an hour later when Madrid left DST, and it did not, because
+    # `-At` had frozen the CEST instant. The frozen 02:30Z start was harmless -- early, not
+    # late -- but 09:30Z stops covering the T-24h instants on 2026-11-01, when US DST ends
+    # and they move to 05:00-10:00Z. See supervisor.ps1's band block for the measurement.
+    #
+    # Note this is the collectors' repetition window, which the snapshotter's own `--until`
+    # now matches exactly; before 10-30 it outlived the band by an hour under CET.
+    [string]$Band = '03:30-10:30',
+    [string]$Tz   = 'UTC',
     # Best-effort desktop toast on a lost band. Off by default so the task's own
     # invocation decides, and so running this by hand never pops a notification.
     [switch]$Notify

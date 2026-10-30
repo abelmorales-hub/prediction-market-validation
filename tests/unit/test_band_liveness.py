@@ -18,9 +18,10 @@ bands, so a real-band test would report "no closed band yet" when run mid-mornin
 
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -29,10 +30,55 @@ import pytest
 from scripts.gap_report import main
 from src.config import get_settings
 from src.ingest.kalshi import build_book
+from src.scheduler.gaps import band_days
 from src.storage.parquet_store import BookSnapshot, write_snapshots
 
 MADRID = ZoneInfo("Europe/Madrid")
 BAND = "00:00-00:30"
+
+SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
+BAND_CHECK_PS1 = SCRIPTS / "band_check.ps1"
+SUPERVISOR_PS1 = SCRIPTS / "supervisor.ps1"
+
+
+def _watchdog_defaults() -> tuple[tuple[time, time], ZoneInfo]:
+    """band_check.ps1's own -Band/-Tz defaults, read rather than restated here.
+
+    A test carrying its own copy of them would stay green if the script drifted back to
+    local time -- the exact shape of gate this project has been bitten by repeatedly.
+    """
+    src = BAND_CHECK_PS1.read_text(encoding="utf-8")
+    band = re.search(r"^\s*\[string\]\$Band\s*=\s*'(\d\d:\d\d)-(\d\d:\d\d)'", src, re.M)
+    tz = re.search(r"^\s*\[string\]\$Tz\s*=\s*'([^']+)'", src, re.M)
+    assert band and tz, f"could not read the watchdog's -Band/-Tz defaults from {BAND_CHECK_PS1}"
+    return (time.fromisoformat(band[1]), time.fromisoformat(band[2])), ZoneInfo(tz[1])
+
+
+def _supervisor_band() -> tuple[tuple[time, time], time]:
+    """supervisor.ps1's UTC band and the instant it registers pmv-band-check at.
+
+    This is the production configuration: since 2026-10-30 the task is registered with
+    -Band/-Tz passed explicitly, so supervisor.ps1 is the single source of truth and
+    band_check.ps1's defaults are only the hand-run fallback. Both are read here and
+    asserted equal, because "kept in sync by hand" is what failed on 10-25.
+    """
+    src = SUPERVISOR_PS1.read_text(encoding="utf-8")
+    start = re.search(r"^\$BandStartUtc\s*=\s*'(\d\d:\d\d)'", src, re.M)
+    hours = re.search(r"^\$BandDurationH\s*=\s*(\d+)", src, re.M)
+    # The watchdog's offset past the close is structural, not a literal: read the AddMinutes
+    # that derives it so moving it has to move this test too.
+    offset = re.search(r"^\$BandCheckAtUtc\s*=.*AddMinutes\((\d+)\)", src, re.M)
+    assert start and hours and offset, f"could not read the band from {SUPERVISOR_PS1}"
+
+    opens = time.fromisoformat(start[1])
+    base = datetime(2026, 1, 1, opens.hour, opens.minute, tzinfo=UTC)
+    closes = base + timedelta(hours=int(hours[1]))
+    fires = closes + timedelta(minutes=int(offset[1]))
+    return (opens, closes.time()), fires.time()
+
+
+WATCHDOG_BAND, WATCHDOG_TZ = _watchdog_defaults()
+SUPERVISOR_BAND, WATCHDOG_FIRES_AT = _supervisor_band()
 
 
 @pytest.fixture(autouse=True)
@@ -114,3 +160,74 @@ def test_liveness_without_a_band_refuses_rather_than_guessing(
         sys, "argv", ["gap_report", "--since", _today_at(0, 0).isoformat(), "--liveness"]
     )
     assert main() == 2
+
+
+def test_the_watchdogs_band_is_closed_at_its_own_fire_instant() -> None:
+    """The regression of 2026-10-25, which cost the alarm five days and one real outage.
+
+    Every test above picks a band already closed whenever the suite happens to run, so none
+    of them can see the fault that actually bit: a band still OPEN at the moment the
+    watchdog asks about it. `band_days` judges only whole closed bands, so when Madrid left
+    DST and pmv-band-check moved from 11:33 to 10:33 local while still being handed
+    04:30-11:30 *local*, the window had an hour left to run at every check. It printed "no
+    closed band in range yet; not judging" and exited 0 daily -- through 2026-10-29, a
+    total local loss it never reported.
+
+    This pins the pairing instead of the band: both the band and the fire instant are read
+    out of the scripts and `now` is injected, so the assertion is about the relationship
+    between them rather than about whatever hour the suite happens to run at. The old
+    config is asserted to fail too, because a test that only checks the new one passes just
+    as well if the band drifts back to local time.
+    """
+    # supervisor.ps1 is the production source of truth; band_check.ps1's defaults are the
+    # hand-run fallback and are documented as kept equal to it. Pin that, or the fallback
+    # rots into a second configuration that only shows up when someone runs it by hand.
+    assert WATCHDOG_BAND == SUPERVISOR_BAND, (
+        f"band_check.ps1 defaults {WATCHDOG_BAND} disagree with supervisor.ps1 "
+        f"{SUPERVISOR_BAND}; the hand-run fallback must match what -Install registers"
+    )
+    assert WATCHDOG_TZ == ZoneInfo("UTC"), "the band must be stated in UTC, not a local zone"
+
+    # The production invocation: --since is today's LOCAL midnight, 23:00Z the day before.
+    since = datetime(2026, 10, 30, 0, 0, tzinfo=MADRID)
+    now = datetime.combine(datetime(2026, 10, 30).date(), WATCHDOG_FIRES_AT, tzinfo=UTC)
+    rows = [("A-1", datetime(2026, 10, 30, 4, 0, tzinfo=UTC), now)]
+
+    fires = WATCHDOG_FIRES_AT.strftime("%H:%M")
+
+    # The historical pairing, with its own literals because it is a frozen fact rather than
+    # anything still derived: from 10-25 the trigger was stuck at 09:33Z (registered under
+    # CEST as 11:33 local) while the band was asked about as 04:30-11:30 Europe/Madrid,
+    # which under CET does not close until 10:30Z. Fifty-seven minutes short, every day.
+    # Note it is the PAIRING that was broken, not either value alone -- the same local band
+    # judged against the 10:33Z instant this file now derives would have been fine, which
+    # is exactly why neither number looked wrong on its own.
+    broken = band_days(
+        rows, since, datetime(2026, 10, 30, 9, 33, tzinfo=UTC), (time(4, 30), time(11, 30)), MADRID
+    )
+    assert broken == [], (
+        "the 10-25 pairing must judge nothing: a 09:33Z check against a local band closing "
+        "10:30Z is the bug, and if this ever judges the comments should be corrected"
+    )
+
+    judged = band_days(rows, since, now, WATCHDOG_BAND, WATCHDOG_TZ)
+    assert len(judged) == 1, f"the UTC band must be closed and judged at {fires}Z: {judged}"
+    assert judged[0].day == datetime(2026, 10, 30).date()
+    assert judged[0].samples == 1, "the in-band row must count toward the day"
+    assert judged[0].clean, "one in-band sample is a live band; holes are find_gaps' business"
+
+    # Yesterday opened before `since`, so it was never this window's to collect. Judging it
+    # would re-report the previous morning's verdict forever.
+    assert all(d.day != datetime(2026, 10, 29).date() for d in judged)
+
+    # Still catches the case the watchdog exists for, at the same instant.
+    dead = band_days([], since, now, WATCHDOG_BAND, WATCHDOG_TZ)
+    assert len(dead) == 1 and not dead[0].clean, f"a dead band must read lost: {dead}"
+
+    # And the seam cannot separate them again: in CEST local midnight is 22:00Z the day
+    # before, the case that could pull an extra band-day into range.
+    s_since = datetime(2026, 7, 15, 0, 0, tzinfo=MADRID)
+    s_now = datetime.combine(datetime(2026, 7, 15).date(), WATCHDOG_FIRES_AT, tzinfo=UTC)
+    s_rows = [("A-1", datetime(2026, 7, 15, 4, 0, tzinfo=UTC), s_now)]
+    summer = band_days(s_rows, s_since, s_now, WATCHDOG_BAND, WATCHDOG_TZ)
+    assert [d.day for d in summer] == [datetime(2026, 7, 15).date()], summer

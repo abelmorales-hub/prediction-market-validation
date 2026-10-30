@@ -71,24 +71,54 @@ $BandCheckScript = Join-Path $PSScriptRoot 'band_check.ps1'
 # compensating for it.
 #
 # Widened from 05:30/6h to 04:30/7h on 2026-10-14, ahead of Madrid leaving DST on
-# 2026-10-25, mid-window (Amendment 17). The band is declared in UTC -- 03:30-09:10 -- but
-# scheduled in local time, and those two agree only while Madrid is on CEST:
+# 2026-10-25, mid-window (Amendment 17). Widening rather than shifting was deliberate:
+# shifting would have moved the *end* an hour earlier too and lost the 09:00Z instants
+# instead of the 04:00Z ones.
+#
+# MOVED FROM LOCAL TO UTC 2026-10-30, after Amendment 17's DST transition turned out never
+# to have happened. Amendment 17 planned for the seam like this:
 #
 #   period                 band local     band UTC       T-24h instants   covered
-#   now -> 10-25 (CEST)    05:30-11:30    03:30-09:30Z   04:00-09:00Z     yes
-#   10-25 -> (CET), OLD    05:30-11:30    04:30-10:30Z   04:00-09:00Z     NO, 04:00-04:30
-#   10-25 -> (CET), NEW    04:30-11:30    03:30-10:30Z   04:00-09:00Z     yes
+#   10-14 -> 10-25 (CEST)  04:30-11:30    02:30-09:30Z   04:00-09:00Z     yes
+#   10-25 -> (CET)         04:30-11:30    03:30-10:30Z   04:00-09:00Z     yes
 #   11-01 -> (US DST off)  04:30-11:30    03:30-10:30Z   05:00-10:00Z     yes
 #
-# So the start moves an hour earlier and the duration absorbs it; $BandEnd is unchanged at
-# 11:30, which is why pmv-sleep and pmv-band-check keep their times. The cost until 10-25
-# is one extra hour of collection a day (02:30-03:30Z) and a machine that wakes an hour
-# earlier -- rows outside the declared band, which cost nothing and are dropped by the
-# window filter anyway. Shifting instead of widening was the alternative and is wrong: it
-# would move the *end* an hour earlier too and lose the 09:00Z instants instead.
-$BandStart      = '04:30'
+# -- the local time holding still while the UTC band walks an hour later at the seam, which
+# is what keeps the 10:00Z instants once US DST ends. THE SEAM NEVER CAME. Measured
+# 2026-10-30: `(New-ScheduledTaskTrigger -Daily -At '04:30').StartBoundary` evaluates to
+# `2026-10-30T03:30:00Z`, while the live pmv-snapshot, registered 10-21 under CEST, still
+# holds `2026-10-21T03:30:00+01:00` = 02:30Z. `-At` resolves its literal against the offset
+# in force AT REGISTRATION and freezes the result; Task Scheduler then honours that instant
+# absolutely instead of re-reading the wall clock each morning. So the band has sat on the
+# CEST row since 10-21, and local '04:30' was never a schedule -- only the arithmetic that
+# produced one instant, once.
+#
+# Harmless so far, because 02:30Z errs early and the declared 03:30-09:10Z analysis band
+# sits inside it. It breaks on 2026-11-01, when US DST ends and the instants move to
+# 05:00-10:00Z: a band ending 09:30Z drops the 09:30-10:00Z tail, the exact loss Amendment
+# 17 was written to prevent. It also blinded pmv-band-check for five days from 10-25,
+# including the total local loss of 10-29; see band_check.ps1 for that half.
+#
+# So the band is now declared AND scheduled in UTC, and every trigger below derives from
+# these values through Get-UtcInstantToday. Local wall-clock times still reach Task
+# Scheduler -- it stores an instant either way -- but they are computed from UTC at install
+# time rather than being the input, so -Install lands on the same instant in either offset.
+# The band is a research parameter (docs/pre_declaration.md, Amendments 3 and 17); changing
+# these two numbers is an amendment, not a tweak.
+$BandStartUtc   = '03:30'
 $BandDurationH  = 7
-$BandEnd        = ([datetime]$BandStart).AddHours($BandDurationH).ToString('HH:mm')
+$BandEndUtc     = ([datetime]$BandStartUtc).AddHours($BandDurationH).ToString('HH:mm')
+
+function Get-UtcInstantToday {
+    # Today's occurrence of a UTC wall-clock time, as a real instant. Everything scheduled
+    # here goes through this: `-At` wants a local DateTime and `--until` wants an ISO
+    # instant, and the two have to mean the same moment whichever offset -Install runs in.
+    param([Parameter(Mandatory)][string]$UtcTime)
+
+    $t = [datetime]::ParseExact($UtcTime, 'HH\:mm', [cultureinfo]::InvariantCulture)
+    return [datetime]::SpecifyKind(
+        [datetime]::UtcNow.Date.AddHours($t.Hour).AddMinutes($t.Minute), 'Utc')
+}
 
 # Sleep is attempted from the band's end and retried, rather than fired once ten minutes
 # after it. The single 11:40 shot skipped on 2026-09-18, -19 and -20 -- "collectors still
@@ -102,13 +132,15 @@ $BandEnd        = ([datetime]$BandStart).AddHours($BandDurationH).ToString('HH:m
 # mid-flush. Retrying only means a skip is no longer permanent. The retry window is
 # bounded so a machine left idle in the afternoon is never suspended out of nowhere.
 $SleepTaskName  = 'pmv-sleep'
-$SleepAt        = $BandEnd
+# Follows the band, so it is UTC-derived like the band is. The overnight window below is
+# not: 21:00 is about when the user stops using the machine, which is a local-clock fact.
+$SleepAt        = (Get-UtcInstantToday $BandEndUtc).ToLocalTime()
 $SleepRetryMin  = 5
 $SleepRetryH    = 1
 
 # A second, overnight window, added 2026-10-21 for energy and not for collection. The
 # band-end window above is bounded to an hour on purpose, and that bound is what sends the
-# machine into the night still awake on any day the user is at it around $BandEnd -- which
+# machine into the night still awake on any day the user is at it around $BandEndUtc -- which
 # is how 2026-10-19 ended in a hand shutdown, and a shutdown is the one state no wake timer
 # can recover from (2026-10-20 was lost entirely that way). So the hour here is deliberately
 # NOT tuned: retrying every 15 min from 21:00 until 04:00 means that whichever hour the user
@@ -120,7 +152,7 @@ $NightSleepAt       = '21:00'
 $NightSleepRetryMin = 15
 $NightSleepRetryH   = 7
 
-# The band watchdog. Derived from $BandEnd rather than written as a literal, because it
+# The band watchdog. Derived from $BandEndUtc rather than written as a literal, because it
 # has to run after the band *closes* -- band_days judges only whole closed bands, so an
 # earlier run reports "no closed band yet" and exits 0, which is a watchdog that passes
 # every day by construction.
@@ -131,8 +163,15 @@ $NightSleepRetryH   = 7
 # This is the local replacement for the `watchdog` job in .github/workflows/feeds.yml,
 # which judged `gh run list --workflow band.yml` -- GitHub's evidence, not the desktop's --
 # while riding the hourly Actions cron that stopped firing on 2026-10-12.
+#
+# In UTC like the band, and this pairing is the whole bug of 10-25: the check fired at a
+# frozen 09:33Z while being handed a band expressed in local time that did not close until
+# 10:30Z, so it had nothing to judge and said so, quietly, for five days. Both ends now
+# come from $BandEndUtc, and Install-Tasks throws if the check does not land after the
+# close. The band is also passed to the script explicitly below rather than left to its
+# defaults, so the registered task and the registered triggers cannot disagree.
 $BandCheckTaskName = 'pmv-band-check'
-$BandCheckAt       = ([datetime]$BandEnd).AddMinutes(3).ToString('HH:mm')
+$BandCheckAtUtc    = ([datetime]$BandEndUtc).AddMinutes(3).ToString('HH:mm')
 # pmv-g0-check is registered elsewhere, not by this script. Reported by -Status anyway: it
 # sat invisible here while $Tasks was the only list the status loop walked, which is the
 # same class of bug as the ValidateSet that silently broke pmv-gefs.
@@ -158,7 +197,15 @@ $Tasks = @{
         # duration-bounded run starting then would collect for another 5.5 hours and hold
         # the machine awake until late afternoon. An absolute stop ends the band on time
         # no matter when the instance started.
-        Arguments   = "-m scripts.snapshot --until $BandEnd"
+        # A full ISO instant, not the local `HH:MM` spelling parse_until also accepts. The
+        # task action is `supervisor.ps1 -Run snapshot`, so this whole file is re-evaluated
+        # every tick and the instant is recomputed for the current day -- it is not frozen
+        # at install time the way a trigger is. `HH:MM` would have been re-read as local
+        # each morning and drifted an hour from the band at the DST seam, which is the
+        # same fault in a second place: 11:30 local meant 09:30Z under CEST and 10:30Z
+        # under CET, so the snapshotter has been outliving its own band by an hour.
+        Arguments   = ("-m scripts.snapshot --until " +
+                       (Get-UtcInstantToday $BandEndUtc).ToString('yyyy-MM-ddTHH:mm:ssZ'))
         IntervalMin = $SnapshotIntervalMin
         # -Hours is [int]. `-Hours ($BandDurationH + 0.5)` rounded 6.5 to 6, so the half
         # hour of grace was silently zero and the limit landed on 11:30:02 -- the exact
@@ -324,6 +371,20 @@ function Install-Tasks {
                $Tasks.snapshot.TimeLimit, $BandDurationH)
     }
 
+    # The watchdog must fire AFTER the band closes. band_days judges only whole closed
+    # bands, so a check landing inside its own band reports "no closed band in range yet"
+    # and exits 0 -- a watchdog that passes every day by construction, which is exactly
+    # what ran from 2026-10-25 to 10-30 and missed a total loss on 10-29. Nothing asserted
+    # this, because while both were local literals three minutes apart it was true by
+    # inspection; it stopped being true when one of them was frozen to an instant and the
+    # other was not. Asserted now, in the one place that can see both.
+    $bandEndInstant   = Get-UtcInstantToday $BandEndUtc
+    $bandCheckInstant = Get-UtcInstantToday $BandCheckAtUtc
+    if ($bandCheckInstant -le $bandEndInstant) {
+        throw ("pmv-band-check fires ${BandCheckAtUtc}Z, at or before the band closes " +
+               "${BandEndUtc}Z -- it would judge an open band and pass every day")
+    }
+
     foreach ($jobName in $Tasks.Keys) {
         $spec = $Tasks[$jobName]
 
@@ -339,8 +400,15 @@ function Install-Tasks {
         # Daily at the band opening, repeating within it and stopping at its end. The
         # repetition is still what restarts a dead job; it just no longer runs around
         # the clock, because the machine is not on around the clock.
-        $trigger = New-ScheduledTaskTrigger -Daily -At $BandStart
-        $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At $BandStart `
+        # -At takes the LOCAL instant that corresponds to the UTC band start. Task
+        # Scheduler stores it as an absolute instant either way (that is the 10-30
+        # finding), so handing it a UTC-derived local time is what makes the stored instant
+        # independent of the offset -Install happened to run in. Only the outer trigger's
+        # StartBoundary survives below -- the -Once trigger contributes its .Repetition and
+        # nothing else -- so this is the single place the band's start is fixed.
+        $bandStartLocal = (Get-UtcInstantToday $BandStartUtc).ToLocalTime()
+        $trigger = New-ScheduledTaskTrigger -Daily -At $bandStartLocal
+        $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At $bandStartLocal `
             -RepetitionInterval (New-TimeSpan -Minutes $spec.IntervalMin) `
             -RepetitionDuration (New-TimeSpan -Hours $BandDurationH)).Repetition
 
@@ -417,10 +485,16 @@ function Install-Tasks {
     # The overnight window must never reach into the band. Asserted rather than trusted,
     # because both ends are edited by hand and a 15-min tick landing at 04:35 would
     # suspend the machine on top of a snapshotter that had just started.
+    # Both sides in LOCAL terms, because $NightSleepAt is a local-clock value by intent and
+    # the band start is not. Comparing a local literal against a UTC one is how an assert
+    # like this passes while meaning nothing, so the band start is converted, not assumed.
     $nightEnd = ([datetime]$NightSleepAt).AddHours($NightSleepRetryH)
-    if ($nightEnd.TimeOfDay -gt ([datetime]$BandStart).TimeOfDay) {
-        throw ("night sleep window runs to $($nightEnd.ToString('HH:mm')), past the band " +
-               "start $BandStart -- it would suspend a live collector")
+    $bandStartLocalTod = (Get-UtcInstantToday $BandStartUtc).ToLocalTime().TimeOfDay
+    if ($nightEnd.TimeOfDay -gt $bandStartLocalTod) {
+        throw ("night sleep window runs to $($nightEnd.ToString('HH:mm')) local, past the " +
+               "band start ${BandStartUtc}Z (" +
+               (Get-UtcInstantToday $BandStartUtc).ToLocalTime().ToString('HH:mm') +
+               " local) -- it would suspend a live collector")
     }
 
     Register-ScheduledTask -TaskName $SleepTaskName `
@@ -429,16 +503,21 @@ function Install-Tasks {
         -Settings $sleepSettings `
         -Description 'Prediction market validation: sleep after the band and overnight, unless in use' `
         -Force | Out-Null
-    Write-Host ("registered $SleepTaskName  (from $SleepAt every $SleepRetryMin min for " +
+    Write-Host ("registered $SleepTaskName  (from $($SleepAt.ToString('HH:mm')) every $SleepRetryMin min for " +
                 "${SleepRetryH}h, and from $NightSleepAt every $NightSleepRetryMin min for " +
                 "${NightSleepRetryH}h; skips while collecting or in use)")
 
     # The watchdog. One shot a day, no repetition: the question is about a closed band, so
     # asking it twice cannot change the answer, and a repeating alarm is one people learn
     # to dismiss.
+    # -Band and -Tz are passed explicitly rather than left to band_check.ps1's defaults, so
+    # the window the watchdog asks about is written by the same code that writes the
+    # trigger it asks from. Relying on the defaults is what let the two drift apart on
+    # 10-25 and stay apart for five days without a single error.
     $bandCheckAction = New-ScheduledTaskAction -Execute 'powershell.exe' `
         -Argument ("-NoProfile -NonInteractive -WindowStyle Hidden " +
-                   "-ExecutionPolicy Bypass -File `"$BandCheckScript`" -Notify") `
+                   "-ExecutionPolicy Bypass -File `"$BandCheckScript`" " +
+                   "-Band $BandStartUtc-$BandEndUtc -Tz UTC -Notify") `
         -WorkingDirectory $RepoRoot
     $bandCheckSettings = New-ScheduledTaskSettingsSet `
         -MultipleInstances IgnoreNew `
@@ -446,7 +525,7 @@ function Install-Tasks {
         -DontStopOnIdleEnd `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries
-    # WakeToRun, unlike pmv-sleep's. pmv-sleep begins attempting at $BandEnd and may
+    # WakeToRun, unlike pmv-sleep's. pmv-sleep begins attempting at $BandEndUtc and may
     # suspend the machine within three minutes of the band closing -- before this ever
     # runs. Without the wake, the single day the watchdog is most likely to be needed (one
     # where nobody was at the desk) is also the day it silently does not run. It wakes,
@@ -459,15 +538,20 @@ function Install-Tasks {
 
     Register-ScheduledTask -TaskName $BandCheckTaskName `
         -Action $bandCheckAction `
-        -Trigger (New-ScheduledTaskTrigger -Daily -At $BandCheckAt) `
+        -Trigger (New-ScheduledTaskTrigger -Daily `
+            -At (Get-UtcInstantToday $BandCheckAtUtc).ToLocalTime()) `
         -Settings $bandCheckSettings `
         -Description 'Prediction market validation: did the band capture anything today' `
         -Force | Out-Null
-    Write-Host ("registered $BandCheckTaskName  (daily at $BandCheckAt; exit 1 = BAND LOST, " +
-                "toast + LastTaskResult)")
+    Write-Host ("registered $BandCheckTaskName  (daily at ${BandCheckAtUtc}Z = " +
+                (Get-UtcInstantToday $BandCheckAtUtc).ToLocalTime().ToString('HH:mm') +
+                " local; exit 1 = BAND LOST, toast + LastTaskResult)")
 
     Write-Host ""
-    Write-Host "Band: $BandStart-$BandEnd local, daily. Wakes the machine from sleep."
+    Write-Host ("Band: $BandStartUtc-${BandEndUtc}Z daily (" +
+                (Get-UtcInstantToday $BandStartUtc).ToLocalTime().ToString('HH:mm') + "-" +
+                (Get-UtcInstantToday $BandEndUtc).ToLocalTime().ToString('HH:mm') +
+                " local today). Wakes the machine from sleep.")
     Write-Host "Logs: $LogDir\<job>-<date>.log"
     Write-Host "Wake-to-run works from SLEEP, not from a full shutdown. If you shut the"
     Write-Host "machine down at night, enable wake-on-RTC in the BIOS or leave it asleep."
