@@ -1414,3 +1414,144 @@ loosening-after-failure that Amendment 10 had to open by admitting. Expressing `
 band in UTC as `03:30-09:10` would make it ask its declared question in both DST regimes and
 is the right eventual fix, but it changes historical verdicts and therefore needs its own
 decision, not a side effect of this one.
+
+### Amendment 18 — 2026-11-15, the H3 window closes: the sample, the gate, and the run condition
+
+**The window declared in Amendment 14 closed at 2026-11-15T00:00:00Z. Accrual is complete at
+1104 clean nominal observations against a pre-committed minimum of 400, and the single H3 look
+is unspent.** Everything below is measured without reading one outcome of the sample it
+defines. `git log d779130..HEAD -- src/models/station_bias.py src/analysis/station_bias.py` is
+empty, so H3's frozen pair is intact. Counts of *which rows have an outcome recorded* appear
+below, as they did in Amendment 11; the `outcome` column itself is never read into an
+expression, and `FROZEN_MODELS` still withholds H3 from any unqualified scorer run.
+
+**The sample.** Every `gefs_station_bias_v1` T-24h prediction stamped in
+[2026-10-16T00:00:00Z, 2026-11-15T00:00:00Z), less the markets on `docs/h3_excluded_markets.txt`,
+committed with this amendment:
+
+| | |
+|---|--:|
+| distinct markets at T-24h in the window | 1113 |
+| of those, on the exclusion list | −9 |
+| **clean nominal observations** | **1104** |
+| of which resolved as of this entry | 1077 |
+| awaiting settlement | 27 |
+| event families | 431 |
+| observations per family | 2.56 |
+
+The cut is a fixed instant: the sample cannot grow between this amendment and the run. 2.56
+observations per family is *tighter* clustering than the 2.96 the G3 sample had and close to
+the 2.6 Amendment 6 planned against, so the ×3 inflation behind the minimum n = 400 remains
+the conservative choice it was declared to be. Accrual ran 23–55 markets a day with no zero
+day; the one thin day is 2026-10-17 at 14, whose cause is recorded in Amendment 17's
+successor notes (a dead resolver on resume, desktop-only, before the backup worked).
+
+**The gate must be run on the union of both hosts, and running it on one host is the eighth
+instance of this project's signature fault.** Amendment 14 defines the sample as the union —
+"both hosts collect, and the sample is the union" — but `gap_report` reads local Parquet,
+and Actions' parts live on `origin` until someone pulls them. Judged on the desktop's copy
+alone, the ledger read **two lost band-days, 2026-11-05 and 2026-11-07**. Both are real
+desktop failures and both have the same cause, the `getaddrinfo failed` resolver fault seen
+on 09-13, 10-01 and 10-17: 29 and 27 `connect()` retry ladders respectively, no local Parquet
+written. **Both were covered end to end by Actions** — `b6f9e57`/`d208b03` and
+`01414e5`/`e68a3e9` commit full shifts, and the H3 rows exist in the database, 40 markets
+emitted 05:57–08:57Z on 11-05 and 42 emitted 05:58–08:57Z on 11-07, which are ordinary days
+by every measure. Fast-forwarding the local repository to `bd18bcf` and re-running the
+declared command is what produced the ledger below. **A gate that reads one host's disk and
+reports on a two-host collector is answering an easier question than the one declared**, the
+same shape as the `--days 1` default, the empty-range pass, Amendment 15's wrong-host
+watchdog and the DST-blinded band check. Nothing here changes a research parameter; it
+changes which corpus the gate is pointed at, and the obligation it creates is permanent:
+**pull before judging.**
+
+**The G0 ledger for this window**, `gap_report --since 2026-10-16T00:00:00Z --band 03:30-09:10
+--tz UTC` on the merged corpus:
+
+    snapshots 519,543 over 6,426 markets     dense capture 168.7%
+    band-days judged 31    clean 14 (reached 2026-10-29)    lost 0
+    CRITICAL 18    MISSED 0
+
+Capture above 100% is the union doing its job: two hosts sampling the same dense window
+produce more samples than one host's cadence expects. **Set beside the G3 window — 159
+CRITICAL, 86 MISSED, three lost days, 96.3% capture — this is a different quality of
+collection**, and the difference is the online collector that Amendments 13 through 17 spent
+five weeks making work.
+
+**G0 is still NOT MET, on 18 CRITICAL gaps, and every one of them falls on 2026-10-16 — the
+first day of the window.** They are LAX, SFO, Las Vegas and five `KXRAIN` markets, all West
+Coast or rain contracts whose holes open at the 10-16 band close (11:02–11:16 local, the log
+ends normally at 11:16:46 with `polled=10564 failed=6`) and run ~22 hours to the next band.
+10-16 is one of the four days — 10-16 through 10-19 — on which **only the desktop collected**:
+the pinger's first successful dispatch was 2026-10-19T18:00Z and Actions' first book-row
+commit is `1f8f8d1`, dated 10-20. A single host's band end is a hard edge; two overlapping
+hosts' is not, which is why the fault does not recur on any of the remaining 30 days.
+
+**What a CRITICAL gap can and cannot do to an observation — checked, not argued**, exactly as
+Amendment 11 checked it, over the 1104 clean nominal rows with the horizon recomputed from
+`end_date` as stored today:
+
+    lag = (end_date - 24h) - prediction ts
+    min 0.92 min   median 2.83 min   max 5.00 min
+    rows beyond the 5-minute tolerance:        0
+    rows timestamped after their own horizon:  0
+    rows whose horizon cannot be verified:     0
+
+**Three rows sit at exactly 5.00 minutes and 41 within half a minute of it**, which is
+disclosed rather than rounded away: the binding constraint on this sample is `pick`'s declared
+tolerance, and those rows are admitted by the declared rule (`lag <= max_lag`), not by a margin.
+None exceeds it and none is stamped after its own horizon, so no observation is paired with a
+price from the wrong side of its horizon, and no close was moved after emission. The gaps cost
+*n* and bias *which* observations exist. They corrupt none that does.
+
+**The selection residual is the same in kind as H2's and an order of magnitude smaller in
+size.** Nine of the 18 flagged markets carry no H3 T-24h row at all — an upper bound on
+observations lost to the fault, against 102 in the G3 sample — and the nine that do disagree
+with the market more than the kept ones, median |p̂ − m| **0.205 against 0.158**. The direction
+this pushes mean(d) is unknown, it is unfixable from here, and it travels with the result. One
+reassurance it does carry: the kept sample's median disagreement of 0.158 lands on Amendment
+13's sizing estimate of 0.1588 measured counterfactually on H2's rows, so the correction's
+behaviour out of sample matches what the power calculation assumed.
+
+**Why this proceeds rather than pauses.** Amendment 11 made this argument at length for a
+window with 159 CRITICALs and three lost days; this one has 18, zero lost days, and the
+integrity check above is clean on all 1104 rows. Everything that argument rested on is
+stronger here, and the one thing that would overturn it — a row outside tolerance, a close
+moved after emission, a horizon that cannot be verified — is absent in all three forms. The
+standing objection stands with it: this is again written by the party the gate constrains,
+after the gate failed, and it is again mitigated by tightening the sample in both operative
+rules rather than loosening either.
+
+**Operational facts recorded here because no amendment carries them yet.** The scheduled band
+was re-registered in UTC on 2026-10-30 (`c409670`), replacing `-At '04:30'` local — which
+serialises an absolute instant at the offset in force on the day of registration and therefore
+froze the band at 02:30–09:30Z through a DST change — with `$BandStartUtc = '03:30'` and a
+7-hour duration, plus `--until` as a full ISO instant and `band_check.ps1` invoked with an
+explicit `-Band 03:30-10:30 -Tz UTC`. The reason it mattered is visible in this window's own
+data: **US DST ended 2026-11-01 and the T-24h emissions move that morning from 04:5x–07:5x to
+05:5x–08:5x UTC**, which the frozen 09:30Z band end would have clipped. `pmv-g0-check`'s
+band mismatch, disclosed in Amendment 17, is unchanged and still conservative.
+
+**The run, and the condition it waits on.** The pre-committed minimum is a count of
+*observations*, and an unresolved market is not one; 1077 of the 1104 have an outcome
+recorded, and the 27 that do not are `26NOV14` ladders settling within hours of their close.
+
+> **The H3 run happens once, when every row of the frozen sample has resolved, and not
+> before. If any has not by 2026-11-18T00:00:00Z, the run happens anyway on whatever has
+> resolved, with the shortfall stated in the report.** No further accrual is counted either
+> way — the cut is fixed and nothing stamped after it enters the sample.
+
+The command is Amendment 14's, unchanged, repeated here so it cannot be tuned later:
+
+    uv run python -m scripts.score --model gefs_station_bias_v1 --horizon T-24h \
+      --since 2026-10-16T00:00:00Z --until 2026-11-15T00:00:00Z \
+      --exclude docs/h3_excluded_markets.txt --out reports/h3.md --require-n 400
+
+**Pass requires all four of §4's conditions, unchanged**: mean(d) > 0; the clustered bootstrap
+95% CI by `event_family` excluding zero; effective n ≥ 133; and the improvement surviving
+exclusion of the `[0, 0.05] ∪ [0.95, 1]` buckets. Failure closes H3 and is publishable, and it
+licenses no search for another category, horizon or model.
+
+**What this does not touch.** H3's frozen files, `model_version`, σ_d = 0.2092, δ = 0.0509,
+the required effective n = 133, the minimum n = 400, the endpoint, the benchmark, the
+single-run rule, the band, the universe, the category, and the training cutoff of 2026-10-08.
+Nothing here is a model change and no new `model_version` is created.
