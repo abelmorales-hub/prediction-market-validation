@@ -1555,3 +1555,75 @@ licenses no search for another category, horizon or model.
 the required effective n = 133, the minimum n = 400, the endpoint, the benchmark, the
 single-run rule, the band, the universe, the category, and the training cutoff of 2026-10-08.
 Nothing here is a model change and no new `model_version` is created.
+
+### Amendment 19 — 2026-11-16, the single run is spent: H3 fails and is closed
+
+The run declared in Amendment 14 and re-registered in Amendment 18 was taken once, at
+**2026-11-16 20:21 UTC**, on the frozen sample, with the command fixed there. The report is
+`docs/h3_result.md`. The station-corrected ensemble moves every diagnostic in the direction
+the correction promised — and still loses to the market by eight and a half points of mean
+paired Brier difference. The result is not close enough to be a question of power.
+
+| stratum | n | families | eff. n | mean(d) | 95% CI | BSS | ECE | AUC |
+|---|--:|--:|--:|--:|:--:|--:|--:|--:|
+| overall | 1,100 | 430 | 879 | **−0.0845** | [−0.1027, −0.0666] | −0.5470 | 0.160 | 0.610 |
+| tails excluded | 893 | 426 | 701 | **−0.0932** | [−0.1149, −0.0718] | −0.5045 | 0.195 | 0.569 |
+
+**Against §4's four conditions: 1 fails, 2 fails, 3 passes, 4 is moot.** `mean(d) > 0` is
+false and the sign is wrong, not small; the clustered CI excludes zero *on the wrong side*,
+clearing it by 0.066; effective n is 879 against the 133 Amendment 13 required, so the study
+had ample power and used it to measure a loss; and there is no improvement for the tail
+exclusion to survive — removing the tails makes H3 worse, the same direction as H2.
+**Failure. H3 is closed.** Per §4 this licenses no search for another category, horizon or
+model, and these 1,100 rows are spent: nothing fitted on them can ever be tested out of
+sample again.
+
+**The run was taken before the fallback instant, and that deviation is recorded with its
+direction.** Amendment 18's condition was: once, when every row has resolved, and not
+before; if any has not by 2026-11-18T00:00:00Z, on whatever has resolved, with the
+shortfall stated. On 2026-11-16, 1,100 of 1,104 had resolved and the remaining 4 were all
+rungs of one ladder — `KXHIGHNY-26NOV13-{B50.5, B52.5, B54.5, T50}`, closed
+2026-11-14T06:00Z — for which the venue reported `result ""`, `settlement_value null` and
+an `expiration_time` of **2026-11-20T15:00:00Z**, two and a half days past the fallback.
+The "every row resolved" branch therefore could not fire by 2026-11-18 on the venue's own
+stated timeline, so the fallback's 1,100-row sample was already the sample, and the run was
+taken on Abel's instruction rather than holding for an instant that could not change it.
+The cut is fixed, so nothing could enter between 11-16 and 11-18; the only thing waiting
+could alter is the 4 rows themselves, and even resolving all 4 at the most favorable paired
+difference possible (d = +1 each) moves mean(d) from −0.0845 to −0.0806, nowhere near zero.
+The shortfall is stated in the report's preface, as required. Confirmed before the look by
+a run with `--require-n 999999`, which printed the census — 1,100 complete observations —
+and scored nothing; `git log d779130..HEAD` on the frozen pair was re-verified empty the
+same hour, and the local repository was fast-forwarded to `origin/master` first, per
+Amendment 18's pull-before-judging obligation.
+
+**What the correction did and did not buy, read against G3's numbers on the prior window.**
+Every calibration symptom Amendment 12 identified improved out of sample: mean(d) −0.1008 →
+−0.0845, BSS −0.7848 → −0.5470, ECE 0.171 → 0.160, AUC 0.532 → 0.610, and the [0, 0.05]
+bucket's −46.24 BSS — H2's most expensive failure — is −1.89 here. The constant per-station
+offset was real, it was fitted honestly on pre-sample data only, and correcting it
+recovered genuine ordering: 0.610 is the first above-chance overall discrimination this
+project has measured. And the loss barely moved. Inside every price bucket AUC stays at
+chance (0.488–0.533), so the market's own ordering still explains nearly all of the
+model's: the T-24h price embeds information the corrected ensemble does not carry — not
+the station offset, which is now corrected, but everything the offset was standing in for.
+Amendment 12's diagnosis, "a model with the right information and the wrong offset," is
+half-confirmed and half-refuted: the offset was wrong, and fixing it closed at most a
+quarter of the gap.
+
+**Limitations, the same shape as Amendment 12's, smaller.** The selection residual is 9
+flagged markets with no T-24h row against H2's 102, and flagged markets disagree with the
+market more than kept ones (median |p̂ − m| 0.205 vs 0.158) — direction unknown, magnitude
+incapable of accounting for a −0.08 mean whose CI clears zero by 0.066. G0 is red on 18
+CRITICAL gaps, all on 2026-10-16, the first day of the window, before the online
+collector's first dispatch; zero lost band-days against the G3 window's three. Amendment
+18's case for proceeding was again written by the interested party, and again bought a
+window that produced the result it had the least incentive to produce.
+
+**Publishable as a negative result, and the study is over.** Two pre-registered hypotheses,
+two single looks, two decisive failures with ample power: the market's T-24h price beats
+raw GEFS output on 778 out-of-sample observations and beats station-corrected GEFS output
+on 1,100 more. The apparatus — the freeze, the gates, σ_d measured without outcomes, the
+single-look discipline, the refusal guard — held both times, which is what makes the
+negative worth stating. The collectors have nothing left to feed and can be retired with
+`supervisor.ps1 -Uninstall` at Abel's convenience.
